@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CT Solution — Gestionale spedizioni (demo)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topnav">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span>CT Solution <small>· Gestionale spedizioni</small></span>
+  </div>
+  <nav id="mainnav" aria-label="Navigazione principale">
+    <button class="nav-item active" data-view="dashboard">Dashboard</button>
+    <button class="nav-item" data-view="spedizioni">Spedizioni</button>
+    <button class="nav-item" data-view="listini">Listini e tariffe</button>
+    <button class="nav-item" data-view="flussi">Flussi in ingresso</button>
+    <button class="nav-item" data-view="giacenze">Giacenze</button>
+    <button class="nav-item" data-view="ecommerce">Connettore e-commerce</button>
+    <button class="nav-item" data-view="tracking">Tracking</button>
+    <button class="nav-item" data-view="appop">App operativa</button>
+    <button class="nav-item" data-view="utenti">Utenti e ruoli</button>
+    <button class="nav-item" data-view="config">Configurazioni</button>
+  </nav>
+  <div class="nav-user">
+    <span class="demo-chip" title="Tutti i dati sono simulati lato client">DEMO · dati di esempio</span>
+    <span class="avatar">MB</span>
+    <span>M. Bruzzone<br><span style="opacity:.65">Back office</span></span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ==================== DASHBOARD ==================== -->
+  <section class="view active" id="view-dashboard">
+    <div class="view-header">
+      <h1>Dashboard operativa</h1>
+      <span class="sub" id="dash-date"></span>
+    </div>
+    <div class="kpis" id="dash-kpis"></div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Spedizioni per stato</h3>
+        <div id="dash-stati"></div>
+      </div>
+      <div class="card">
+        <h3>Ultime attività</h3>
+        <ul class="timeline" id="dash-activity"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SPEDIZIONI ==================== -->
+  <section class="view" id="view-spedizioni">
+
+    <!-- Vista elenco -->
+    <div id="sped-list-wrap">
+      <div class="view-header">
+        <h1>Spedizioni</h1>
+        <span class="sub">Normalizzazione, assegnazione vettore, coda di lavorazione</span>
+        <span class="spacer"></span>
+        <button class="btn" id="btn-goto-colli">Colli madre e sotto-colli</button>
+        <button class="btn" id="btn-goto-diff">Differenziale peso/misure</button>
+      </div>
+
+      <div class="card card-plain" style="padding:10px 14px">
+        <div class="legend">
+          <strong style="font-family:var(--font-display)">Filtri rapidi:</strong>
+          <label>Mandante <select id="gf-mandante" class="inline-select"></select></label>
+          <label>Stato <select id="gf-stato" class="inline-select"></select></label>
+          <label>Vettore <select id="gf-vettore" class="inline-select"></select></label>
+          <span class="tiny">I filtri rapidi si combinano (AND) con i filtri per colonna della tabella.</span>
+        </div>
+      </div>
+
+      <div id="dt-spedizioni"></div>
+
+      <div class="card">
+        <h3>Coda di lavorazione — flusso di staging</h3>
+        <p class="small muted">In revisione → (dati validi) → In staging → (vettore assegnato) → Parcheggio → Disponibile per etichettatura. Clicca una card per aprire il dettaglio.</p>
+        <div class="kanban" id="staging-kanban"></div>
+      </div>
+    </div>
+
+    <!-- Vista dettaglio a tab dedicata -->
+    <div id="sped-detail-wrap" style="display:none"></div>
+
+    <!-- Vista colli madre -->
+    <div id="colli-wrap" style="display:none">
+      <div class="view-header">
+        <button class="btn" id="btn-colli-back">← Torna all'elenco</button>
+        <h1>Colli madre e sotto-colli</h1>
+        <span class="sub">Relazione bancale → colli, con stato aggregato e spedizione separata</span>
+      </div>
+      <ul class="tree" id="colli-tree"></ul>
+    </div>
+
+    <!-- Vista differenziale peso -->
+    <div id="diff-wrap" style="display:none">
+      <div class="view-header">
+        <button class="btn" id="btn-diff-back">← Torna all'elenco</button>
+        <h1>Differenziale peso/misure</h1>
+        <span class="sub">Dichiarato vs rilevato, con impatto economico calcolato</span>
+      </div>
+      <div id="dt-diff"></div>
+    </div>
+  </section>
+
+  <!-- ==================== LISTINI ==================== -->
+  <section class="view" id="view-listini">
+    <div class="view-header">
+      <h1>Listini e tariffe</h1>
+      <span class="sub">Tre livelli: listini vettori terzi → listini di costo interni → listini di vendita</span>
+    </div>
+    <div class="tabs" id="listini-tabs">
+      <button class="tab-btn active" data-tab="lv">Listini vettori (terzi)</button>
+      <button class="tab-btn" data-tab="lc">Listini di costo interni</button>
+      <button class="tab-btn" data-tab="lvend">Listini di vendita</button>
+      <button class="tab-btn" data-tab="lstor">Storicità</button>
+    </div>
+    <div class="tab-pane active" id="pane-lv">
+      <div class="info-box">⚠️ <strong>Dati di esempio.</strong> I listini reali dei vettori non sono ancora disponibili (in attesa lato cliente): la struttura è pronta per l'inserimento dei valori definitivi.</div>
+      <div class="tabs" id="lv-vettori-tabs" style="border-bottom-width:1px"></div>
+      <div class="price-meta" id="lv-meta"></div>
+      <div id="dt-listino-vettore"></div>
+    </div>
+    <div class="tab-pane" id="pane-lc">
+      <div class="price-meta" id="lc-meta"></div>
+      <div id="dt-listino-costo"></div>
+    </div>
+    <div class="tab-pane" id="pane-lvend">
+      <div class="legend">
+        <span><span class="sw" style="background:var(--err-bg);border:1px solid var(--err)"></span>Riga in perdita (vendita &lt; costo)</span>
+        <span class="tiny">Le righe sotto il <strong>listino vettore di origine</strong> mostrano un warning più severo rispetto a quelle sotto il solo costo interno.</span>
+      </div>
+      <div id="dt-listino-vendita"></div>
+    </div>
+    <div class="tab-pane" id="pane-lstor">
+      <div class="card">
+        <h3>Timeline listini per cliente</h3>
+        <div class="form-row" style="max-width:320px">
+          <label>Mandante</label>
+          <select id="stor-cliente" class="inline-select" style="max-width:none;width:100%"></select>
+        </div>
+        <ul class="hist-timeline" id="stor-timeline"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== FLUSSI ==================== -->
+  <section class="view" id="view-flussi">
+    <div class="view-header">
+      <h1>Flussi in ingresso</h1>
+      <span class="sub" id="flussi-counter"></span>
+      <span class="spacer"></span>
+      <span class="demo-chip">microservizi di import per cliente</span>
+    </div>
+    <div class="layout-side">
+      <div id="dt-flussi"></div>
+      <div class="card" id="flusso-detail">
+        <h3>Dettaglio cliente</h3>
+        <p class="muted small">Seleziona un cliente dalla tabella per vedere configurazione e regole custom.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== GIACENZE ==================== -->
+  <section class="view" id="view-giacenze">
+    <div class="view-header">
+      <h1>Giacenze</h1>
+      <span class="sub">Gestione riga per riga o massiva sul filtro corrente</span>
+    </div>
+    <div id="dt-giacenze"></div>
+  </section>
+
+  <!-- ==================== E-COMMERCE ==================== -->
+  <section class="view" id="view-ecommerce">
+    <div class="view-header">
+      <h1>Connettore e-commerce</h1>
+      <span class="sub">Vista del cliente finale collegato ai marketplace</span>
+    </div>
+    <div class="kpis" id="ecom-kpis"></div>
+    <div class="info-box">🔁 <strong>Flusso invertito — Vinted:</strong> a differenza degli altri marketplace (interrogati dal connettore), Vinted <em>notifica</em> gli ordini via push. Gli ordini Vinted arrivano quindi in tempo reale e sono contrassegnati con il badge «push».</div>
+    <div id="dt-ecom"></div>
+  </section>
+
+  <!-- ==================== TRACKING ==================== -->
+  <section class="view" id="view-tracking">
+    <div class="track-hero">
+      <h2>Traccia la tua spedizione</h2>
+      <p>Inserisci il codice della lettera di vettura</p>
+      <div class="track-form">
+        <input id="track-input" placeholder="es. LDV-2026-01187" aria-label="Codice lettera di vettura">
+        <button class="btn btn-accent" id="track-btn">Cerca</button>
+      </div>
+      <div class="track-suggest" id="track-suggest">Prova con:</div>
+    </div>
+    <div id="track-result"></div>
+  </section>
+
+  <!-- ==================== APP OPERATIVA ==================== -->
+  <section class="view" id="view-appop">
+    <div class="view-header">
+      <h1>App operativa — magazzino e padroncini</h1>
+      <span class="sub">Simulazione web dell'app mobile per presa in carico e consegna</span>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone">
+        <div class="phone-status"><span>09:41</span><span>▮▮▮ 82%</span></div>
+        <div class="phone-app-head">CT Driver <div class="sub" id="phone-mode-label"></div></div>
+        <div class="phone-body" id="phone-body"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:280px">
+        <h3>Configurazione simulazione</h3>
+        <div class="form-row">
+          <label>Tipo vettore</label>
+          <select id="appop-mode" class="inline-select" style="max-width:none;width:100%">
+            <option value="padroncino">Linea propria (padroncino) — con borderò digitale</option>
+            <option value="terzo">Corriere esterno — senza borderò interno</option>
+          </select>
+        </div>
+        <div class="info-box"><strong>Differenza chiave:</strong> il borderò digitale interno (elenco colli affidati con firma di presa in carico) esiste <em>solo</em> per le linee proprie. Per i corrieri esterni la presa in carico avviene sui sistemi del corriere.</div>
+        <div class="warn-box"><strong>Foto obbligatoria:</strong> la conferma di consegna richiede sempre una foto (simulata) prima di poter chiudere la spedizione.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== UTENTI ==================== -->
+  <section class="view" id="view-utenti">
+    <div class="view-header">
+      <h1>Utenti, ruoli e livelli di accesso</h1>
+      <span class="sub">Quattro livelli: Piattaforma · Back office · Mandanti/Sottocontratti · Clienti finali</span>
+    </div>
+    <div class="layout-side">
+      <div id="dt-utenti"></div>
+      <div class="card" id="perm-panel">
+        <h3>Permessi per modulo</h3>
+        <p class="muted small">Seleziona un utente dalla tabella per vedere e simulare la modifica dei permessi.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== CONFIGURAZIONI / ARCHITETTURA ==================== -->
+  <section class="view" id="view-config">
+    <div class="view-header">
+      <h1>Configurazioni · Architettura tecnica</h1>
+      <span class="sub">Vista concettuale: message broker, consumer, rate limit vettori</span>
+    </div>
+    <div class="arch-grid">
+      <div>
+        <div class="card">
+          <h3>Coda messaggi (message broker)</h3>
+          <div class="kv" style="grid-template-columns:180px 1fr">
+            <dt>Messaggi in coda</dt><dd class="mono" id="q-depth">—</dd>
+            <dt>Throughput</dt><dd class="mono" id="q-thr">—</dd>
+            <dt>Consumer attivi</dt><dd class="mono" id="q-cons">—</dd>
+          </div>
+          <div class="queue-meter"><div id="q-meter" style="width:12%"></div></div>
+          <p class="tiny">Spegnendo un servizio qui sotto, la coda si accumula (simulato).</p>
+          <div id="svc-list"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h3>Rate limit per vettore</h3>
+          <p class="tiny">Limite API, volume richieste, throttling e distribuzione su più nodi. Il mini-grafico mostra lo storico orario simulato delle ultime 24 h (barre arancio = picchi vicini al limite).</p>
+          <div id="rl-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div id="modal-root"></div>
+<div id="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
