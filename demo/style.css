@@ -1,5 +1,5 @@
 /* =========================================================
-   AIR ENTERPRISE — design tokens
+   CT SOLUTION — design tokens
    Ispirazione: bolla di consegna / timbro doganale / manifesto di carico.
    ========================================================= */
 :root{
@@ -400,6 +400,91 @@ select, .op-form input[type=text], .tracking-search input{
 .ratelimit-bar.is-over{background:var(--danger);}
 .node-dist{display:flex;gap:6px;flex-wrap:wrap;}
 .node-tag{font-family:var(--font-mono);font-size:10.5px;background:var(--blue-soft);color:var(--blue);padding:2px 7px;border-radius:10px;}
+
+/* =========================== DATA GRID PATTERN =========================== */
+/* Reusable across any .data-table: sortable headers + search/range filters +
+   pagination footer. Apply the same markup/classes to migrate other grids
+   (Listini, Flussi, Qapla, ecc.) onto this pattern. */
+
+.grid-search{min-width:220px;}
+.range-filter{
+  display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-muted);
+  border:1px solid var(--line-strong);border-radius:var(--radius-s);padding:4px 8px;background:#fff;
+}
+.range-filter-label{font-weight:600;color:var(--ink-faint);}
+.range-filter input{width:46px;border:none;padding:2px;font-size:12px;background:transparent;}
+.range-filter input:focus{outline:none;}
+
+.data-table thead th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+.data-table thead th.sortable:hover{color:var(--ink);}
+.sort-ind{display:inline-block;width:10px;font-size:10px;color:var(--ink-faint);margin-left:2px;}
+.data-table thead th.sort-asc .sort-ind::after{content:"▲";color:var(--accent);}
+.data-table thead th.sort-desc .sort-ind::after{content:"▼";color:var(--accent);}
+.data-table thead th.sort-active{color:var(--ink);}
+
+.table-wrap.is-loading{position:relative;min-height:120px;}
+.table-wrap.is-loading tbody{opacity:.35;pointer-events:none;transition:opacity .1s;}
+.table-wrap.is-loading::after{
+  content:"Caricamento…";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--ink-muted);background:rgba(255,255,255,.4);
+}
+
+.grid-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;flex-wrap:wrap;}
+.pagination{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-muted);}
+.pagination select{padding:4px 6px;font-size:12px;}
+.pagination button{
+  border:1px solid var(--line-strong);background:#fff;border-radius:var(--radius-s);
+  padding:4px 9px;font-size:12px;cursor:pointer;color:var(--ink);
+}
+.pagination button:disabled{opacity:.35;cursor:not-allowed;}
+.pagination-pages{font-family:var(--font-mono);}
+
+/* =========================== BULK ACTION BAR =========================== */
+.bulk-bar{
+  display:none;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--blue-soft);border:1px solid #cdddec;border-radius:var(--radius-s);
+  padding:9px 14px;margin-bottom:12px;font-size:12.5px;
+}
+.bulk-bar.is-visible{display:flex;}
+.bulk-bar-count{font-weight:600;color:var(--blue);}
+.bulk-bar-sep{width:1px;height:18px;background:#cdddec;}
+.bulk-bar-field{display:flex;align-items:center;gap:6px;color:var(--ink-muted);}
+.bulk-bar-field select{padding:5px 7px;font-size:12px;}
+
+/* =========================== DETAIL DRAWER =========================== */
+.modal-overlay.is-drawer{justify-content:flex-end;padding:0;align-items:stretch;}
+.modal.modal-drawer{
+  max-width:620px;width:100%;height:100%;max-height:100%;border-radius:0;
+  animation:drawerin .18s ease;display:flex;flex-direction:column;
+}
+.modal.modal-drawer .modal-body{flex:1;overflow-y:auto;}
+@keyframes drawerin{from{transform:translateX(24px);opacity:.4;}to{transform:none;opacity:1;}}
+
+.drawer-subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding:0 20px;}
+.drawer-subtabs button{
+  background:none;border:none;padding:10px 6px;margin-right:14px;font-size:12.5px;font-weight:500;
+  color:var(--ink-muted);border-bottom:2px solid transparent;cursor:pointer;
+}
+.drawer-subtabs button.is-active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600;}
+.drawer-panel{display:none;}
+.drawer-panel.is-active{display:block;}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;}
+.detail-field{font-size:12.5px;}
+.detail-field b{display:block;font-size:11px;color:var(--ink-faint);font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px;}
+.payload-pre{
+  background:var(--navy-950);color:#c9e0ff;font-family:var(--font-mono);font-size:11.5px;
+  padding:14px;border-radius:var(--radius-s);overflow-x:auto;white-space:pre;
+}
+.status-history{list-style:none;margin:0;padding:0;}
+.status-history li{
+  display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f1f3f5;font-size:12.5px;
+}
+.status-history li:last-child{border-bottom:none;}
+.notes-textarea{
+  width:100%;min-height:110px;border:1px solid var(--line-strong);border-radius:var(--radius-s);
+  padding:10px;font-family:var(--font-body);font-size:12.5px;resize:vertical;
+}
+.row-clickable{cursor:pointer;}
 
 /* =========================== RESPONSIVE =========================== */
 @media (max-width:1080px){

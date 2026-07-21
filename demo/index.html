@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Air Enterprise — Gestionale Spedizioni</title>
+<title>CT Solution — Gestionale Spedizioni</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -13,9 +13,9 @@
 <!-- ============ TOP BAR ============ -->
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark">AE</span>
+    <span class="brand-mark">CT</span>
     <div class="brand-text">
-      <span class="brand-name">Air Enterprise</span>
+      <span class="brand-name">CT Solution</span>
       <span class="brand-sub">Gestionale spedizioni</span>
     </div>
   </div>
@@ -44,7 +44,7 @@
   <section class="view is-active" id="view-dashboard" data-view="dashboard">
     <div class="view-head">
       <h1>Dashboard operativa</h1>
-      <p>Panoramica in tempo (finto) reale dei flussi Air Enterprise.</p>
+      <p>Panoramica in tempo (finto) reale dei flussi CT Solution.</p>
     </div>
 
     <div class="kpi-grid" id="kpi-grid"></div>
@@ -94,6 +94,7 @@
     <div class="subview is-active" data-subview-panel="elenco">
       <div class="toolbar">
         <div class="toolbar-filters">
+          <input type="text" id="filter-search-spedizione" placeholder="Cerca (ID, destinatario, località)…" class="grid-search">
           <select id="filter-stato-spedizione">
             <option value="">Tutti gli stati</option>
           </select>
@@ -103,6 +104,12 @@
           <select id="filter-mandante-spedizione">
             <option value="">Tutti i mandanti</option>
           </select>
+          <div class="range-filter" title="Filtra per numero di servizi accessori applicati (operatore: range)">
+            <span class="range-filter-label">Servizi</span>
+            <input type="number" id="filter-servizi-min" min="0" max="4" placeholder="min">
+            <span>–</span>
+            <input type="number" id="filter-servizi-max" min="0" max="4" placeholder="max">
+          </div>
         </div>
         <div class="toolbar-actions">
           <button class="btn btn-ghost" id="btn-select-all">Seleziona tutto</button>
@@ -113,26 +120,46 @@
         </div>
       </div>
 
-      <div class="table-wrap">
+      <div class="bulk-bar" id="bulk-bar">
+        <span class="bulk-bar-count" id="bulk-bar-count">0 selezionate</span>
+        <span class="bulk-bar-sep"></span>
+        <label class="bulk-bar-field">Aggiorna stato
+          <select id="bulk-stato-select">
+            <option value="">—</option>
+          </select>
+        </label>
+        <button class="btn btn-secondary btn-sm" id="bulk-apply-stato">Applica stato</button>
+        <label class="bulk-bar-field">Aggiorna vettore
+          <select id="bulk-vettore-select">
+            <option value="">—</option>
+          </select>
+        </label>
+        <button class="btn btn-secondary btn-sm" id="bulk-apply-vettore">Applica vettore</button>
+      </div>
+
+      <div class="table-wrap" id="spedizioni-table-wrap">
         <table class="data-table" id="table-spedizioni">
           <thead>
             <tr>
               <th class="col-check"><input type="checkbox" id="check-all-head"></th>
-              <th>ID spedizione</th>
-              <th>Mandante</th>
-              <th>Destinatario</th>
-              <th>CAP</th>
-              <th>Località / Prov.</th>
-              <th>Stato CAP</th>
+              <th class="sortable" data-sort-key="id">ID spedizione<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="mandante">Mandante<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="destinatario">Destinatario<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="cap">CAP<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="localita">Località / Prov.<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="capValida">Stato CAP<span class="sort-ind"></span></th>
               <th>Telefono</th>
-              <th>Vettore</th>
-              <th>Stato</th>
+              <th class="sortable" data-sort-key="vettore">Vettore<span class="sort-ind"></span></th>
+              <th class="sortable" data-sort-key="stato">Stato<span class="sort-ind"></span></th>
             </tr>
           </thead>
           <tbody id="tbody-spedizioni"></tbody>
         </table>
       </div>
-      <p class="table-note" id="tbl-count-note"></p>
+      <div class="grid-footer">
+        <p class="table-note" id="tbl-count-note"></p>
+        <div class="pagination" id="spedizioni-pagination"></div>
+      </div>
     </div>
 
     <!-- CODA -->
@@ -189,60 +216,105 @@
   <section class="view" id="view-listini" data-view="listini">
     <div class="view-head">
       <h1>Listini e tariffe</h1>
-      <p>Listini di costo e di vendita, scaglioni, ricarichi e storicità.</p>
+      <p>Listini di costo e di vendita, scaglioni, ricarichi, rate card vettori e storicità.</p>
     </div>
 
-    <div class="listini-layout">
-      <div class="card">
-        <div class="card-head">
-          <h3>Listini configurati</h3>
-          <button class="btn btn-secondary btn-sm" id="btn-duplica-listino">Duplica listino</button>
+    <div class="subtabs" data-subtabs="listini">
+      <button class="subtab is-active" data-subview="listini-cliente">Listini cliente</button>
+      <button class="subtab" data-subview="ratecard">Listino vettori (Rate Card)</button>
+    </div>
+
+    <div class="subview is-active" data-subview-panel="listini-cliente">
+      <div class="listini-layout">
+        <div class="card">
+          <div class="card-head">
+            <h3>Listini configurati</h3>
+            <button class="btn btn-secondary btn-sm" id="btn-duplica-listino">Duplica listino</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="table-listini">
+              <thead>
+                <tr>
+                  <th>Nome listino</th>
+                  <th>Tipo</th>
+                  <th>Cliente / mandante</th>
+                  <th>Validità</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="tbody-listini"></tbody>
+            </table>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table class="data-table" id="table-listini">
-            <thead>
-              <tr>
-                <th>Nome listino</th>
-                <th>Tipo</th>
-                <th>Cliente / mandante</th>
-                <th>Validità</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="tbody-listini"></tbody>
-          </table>
+
+        <div class="card">
+          <div class="card-head">
+            <h3 id="scaglioni-title">Scaglioni — seleziona un listino</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table data-table-dense" id="table-scaglioni">
+              <thead>
+                <tr>
+                  <th>Peso (da–a)</th>
+                  <th>Peso vol.</th>
+                  <th>Prezzo base</th>
+                  <th>Fuel surch.</th>
+                  <th>Tasse</th>
+                  <th>Maggioraz.</th>
+                  <th>Agente %</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-scaglioni"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <h3 id="scaglioni-title">Scaglioni — seleziona un listino</h3>
+          <h3>Storicità listini per cliente</h3>
+          <select id="select-storicita-cliente"></select>
         </div>
-        <div class="table-wrap">
-          <table class="data-table data-table-dense" id="table-scaglioni">
-            <thead>
-              <tr>
-                <th>Peso (da–a)</th>
-                <th>Peso vol.</th>
-                <th>Prezzo base</th>
-                <th>Fuel surch.</th>
-                <th>Tasse</th>
-                <th>Maggioraz.</th>
-                <th>Agente %</th>
-              </tr>
-            </thead>
-            <tbody id="tbody-scaglioni"></tbody>
-          </table>
-        </div>
+        <div class="timeline" id="timeline-listini"></div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <h3>Storicità listini per cliente</h3>
-        <select id="select-storicita-cliente"></select>
+    <div class="subview" data-subview-panel="ratecard">
+      <div class="card">
+        <div class="card-head">
+          <h3>Rate card per vettore</h3>
+          <span class="eyebrow">Costo per zona, peso volumetrico e resa</span>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-filters">
+            <select id="filter-vettore-ratecard">
+              <option value="">Tutti i vettori</option>
+            </select>
+            <select id="filter-zona-ratecard">
+              <option value="">Tutte le zone</option>
+            </select>
+          </div>
+          <div class="toolbar-actions">
+            <button class="btn btn-primary btn-sm" id="btn-add-ratecard">+ Nuova rate card</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-ratecard">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort-key="vettore">Vettore<span class="sort-ind"></span></th>
+                <th class="sortable" data-sort-key="zona">Zona<span class="sort-ind"></span></th>
+                <th class="sortable" data-sort-key="pesoDa">Peso (da–a)<span class="sort-ind"></span></th>
+                <th>Peso volumetrico</th>
+                <th>Resa</th>
+                <th class="sortable" data-sort-key="prezzo">Prezzo<span class="sort-ind"></span></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-ratecard"></tbody>
+          </table>
+        </div>
+        <p class="table-note" id="ratecard-count-note"></p>
       </div>
-      <div class="timeline" id="timeline-listini"></div>
     </div>
   </section>
 
@@ -294,7 +366,7 @@
     <div class="card">
       <div class="card-head"><h3>Tracking pubblico</h3></div>
       <div class="tracking-search">
-        <input type="text" id="tracking-input" placeholder="Inserisci codice lettera di vettura (es. AE-2026-004821)">
+        <input type="text" id="tracking-input" placeholder="Inserisci codice lettera di vettura (es. CT-2026-004821)">
         <button class="btn btn-primary" id="btn-tracking-search">Cerca</button>
       </div>
       <div id="tracking-result"></div>
