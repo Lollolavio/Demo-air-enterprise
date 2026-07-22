@@ -2,7 +2,7 @@
 
 ## 1
 
-- Login come cliente finale deve vedere solo tracking (fatto Lorenzo)
+- ~Login come cliente finale deve vedere solo tracking~
 
 ## 2
 
