@@ -3,280 +3,481 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CT Solution — Gestionale spedizioni (demo)</title>
+<title>Air Enterprise — Gestionale Spedizioni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="topnav">
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <span>CT Solution <small>· Gestionale spedizioni</small></span>
+    <span class="brand-mark">AE</span>
+    <div class="brand-text">
+      <span class="brand-name">Air Enterprise</span>
+      <span class="brand-sub">Gestionale spedizioni</span>
+    </div>
   </div>
-  <nav id="mainnav" aria-label="Navigazione principale">
-    <button class="nav-item active" data-view="dashboard">Dashboard</button>
+
+  <nav class="mainnav" id="mainnav">
+    <button class="nav-item is-active" data-view="dashboard">Dashboard</button>
     <button class="nav-item" data-view="spedizioni">Spedizioni</button>
     <button class="nav-item" data-view="listini">Listini e tariffe</button>
     <button class="nav-item" data-view="flussi">Flussi in ingresso</button>
-    <button class="nav-item" data-view="giacenze">Giacenze</button>
-    <button class="nav-item" data-view="ecommerce">Connettore e-commerce</button>
-    <button class="nav-item" data-view="tracking">Tracking</button>
-    <button class="nav-item" data-view="appop">App operativa</button>
+    <button class="nav-item" data-view="giacenze">Giacenze &amp; Tracking</button>
+    <button class="nav-item" data-view="operativita">Operatività</button>
+    <button class="nav-item" data-view="qapla">Qapla / e-commerce</button>
     <button class="nav-item" data-view="utenti">Utenti e ruoli</button>
     <button class="nav-item" data-view="config">Configurazioni</button>
   </nav>
-  <div class="nav-user">
-    <span class="demo-chip" title="Tutti i dati sono simulati lato client">DEMO · dati di esempio</span>
-    <span class="avatar">MB</span>
-    <span>M. Bruzzone<br><span style="opacity:.65">Back office</span></span>
+
+  <div class="topbar-right">
+    <span class="legacy-tag" title="Sostituisce l'AS400 storico">Nuovo gestionale · v2</span>
+    <div class="user-chip">MG</div>
   </div>
 </header>
 
-<main>
+<div class="app-shell">
 
-  <!-- ==================== DASHBOARD ==================== -->
-  <section class="view active" id="view-dashboard">
-    <div class="view-header">
+  <!-- ============ DASHBOARD ============ -->
+  <section class="view is-active" id="view-dashboard" data-view="dashboard">
+    <div class="view-head">
       <h1>Dashboard operativa</h1>
-      <span class="sub" id="dash-date"></span>
+      <p>Panoramica in tempo (finto) reale dei flussi Air Enterprise.</p>
     </div>
-    <div class="kpis" id="dash-kpis"></div>
-    <div class="grid-2">
+
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <div class="dash-grid">
       <div class="card">
-        <h3>Spedizioni per stato</h3>
-        <div id="dash-stati"></div>
-      </div>
-      <div class="card">
-        <h3>Ultime attività</h3>
-        <ul class="timeline" id="dash-activity"></ul>
-      </div>
-    </div>
-  </section>
-
-  <!-- ==================== SPEDIZIONI ==================== -->
-  <section class="view" id="view-spedizioni">
-
-    <!-- Vista elenco -->
-    <div id="sped-list-wrap">
-      <div class="view-header">
-        <h1>Spedizioni</h1>
-        <span class="sub">Normalizzazione, assegnazione vettore, coda di lavorazione</span>
-        <span class="spacer"></span>
-        <button class="btn" id="btn-goto-colli">Colli madre e sotto-colli</button>
-        <button class="btn" id="btn-goto-diff">Differenziale peso/misure</button>
-      </div>
-
-      <div class="card card-plain" style="padding:10px 14px">
-        <div class="legend">
-          <strong style="font-family:var(--font-display)">Filtri rapidi:</strong>
-          <label>Mandante <select id="gf-mandante" class="inline-select"></select></label>
-          <label>Stato <select id="gf-stato" class="inline-select"></select></label>
-          <label>Vettore <select id="gf-vettore" class="inline-select"></select></label>
-          <span class="tiny">I filtri rapidi si combinano (AND) con i filtri per colonna della tabella.</span>
+        <div class="card-head">
+          <h3>Coda di lavorazione spedizioni</h3>
+          <span class="eyebrow">In revisione → staging → parcheggio</span>
         </div>
+        <div id="dash-queue-mini" class="mini-funnel"></div>
       </div>
-
-      <div id="dt-spedizioni"></div>
 
       <div class="card">
-        <h3>Coda di lavorazione — flusso di staging</h3>
-        <p class="small muted">In revisione → (dati validi) → In staging → (vettore assegnato) → Parcheggio → Disponibile per etichettatura. Clicca una card per aprire il dettaglio.</p>
-        <div class="kanban" id="staging-kanban"></div>
-      </div>
-    </div>
-
-    <!-- Vista dettaglio a tab dedicata -->
-    <div id="sped-detail-wrap" style="display:none"></div>
-
-    <!-- Vista colli madre -->
-    <div id="colli-wrap" style="display:none">
-      <div class="view-header">
-        <button class="btn" id="btn-colli-back">← Torna all'elenco</button>
-        <h1>Colli madre e sotto-colli</h1>
-        <span class="sub">Relazione bancale → colli, con stato aggregato e spedizione separata</span>
-      </div>
-      <ul class="tree" id="colli-tree"></ul>
-    </div>
-
-    <!-- Vista differenziale peso -->
-    <div id="diff-wrap" style="display:none">
-      <div class="view-header">
-        <button class="btn" id="btn-diff-back">← Torna all'elenco</button>
-        <h1>Differenziale peso/misure</h1>
-        <span class="sub">Dichiarato vs rilevato, con impatto economico calcolato</span>
-      </div>
-      <div id="dt-diff"></div>
-    </div>
-  </section>
-
-  <!-- ==================== LISTINI ==================== -->
-  <section class="view" id="view-listini">
-    <div class="view-header">
-      <h1>Listini e tariffe</h1>
-      <span class="sub">Tre livelli: listini vettori terzi → listini di costo interni → listini di vendita</span>
-    </div>
-    <div class="tabs" id="listini-tabs">
-      <button class="tab-btn active" data-tab="lv">Listini vettori (terzi)</button>
-      <button class="tab-btn" data-tab="lc">Listini di costo interni</button>
-      <button class="tab-btn" data-tab="lvend">Listini di vendita</button>
-      <button class="tab-btn" data-tab="lstor">Storicità</button>
-    </div>
-    <div class="tab-pane active" id="pane-lv">
-      <div class="info-box">⚠️ <strong>Dati di esempio.</strong> I listini reali dei vettori non sono ancora disponibili (in attesa lato cliente): la struttura è pronta per l'inserimento dei valori definitivi.</div>
-      <div class="tabs" id="lv-vettori-tabs" style="border-bottom-width:1px"></div>
-      <div class="price-meta" id="lv-meta"></div>
-      <div id="dt-listino-vettore"></div>
-    </div>
-    <div class="tab-pane" id="pane-lc">
-      <div class="price-meta" id="lc-meta"></div>
-      <div id="dt-listino-costo"></div>
-    </div>
-    <div class="tab-pane" id="pane-lvend">
-      <div class="legend">
-        <span><span class="sw" style="background:var(--err-bg);border:1px solid var(--err)"></span>Riga in perdita (vendita &lt; costo)</span>
-        <span class="tiny">Le righe sotto il <strong>listino vettore di origine</strong> mostrano un warning più severo rispetto a quelle sotto il solo costo interno.</span>
-      </div>
-      <div id="dt-listino-vendita"></div>
-    </div>
-    <div class="tab-pane" id="pane-lstor">
-      <div class="card">
-        <h3>Timeline listini per cliente</h3>
-        <div class="form-row" style="max-width:320px">
-          <label>Mandante</label>
-          <select id="stor-cliente" class="inline-select" style="max-width:none;width:100%"></select>
+        <div class="card-head">
+          <h3>Stato architettura tecnica</h3>
+          <span class="eyebrow">Message broker</span>
         </div>
-        <ul class="hist-timeline" id="stor-timeline"></ul>
+        <div id="dash-broker-mini" class="mini-broker"></div>
+      </div>
+
+      <div class="card card-wide">
+        <div class="card-head">
+          <h3>Attività recente</h3>
+          <span class="eyebrow">Ultimi eventi simulati</span>
+        </div>
+        <ul class="activity-feed" id="activity-feed"></ul>
       </div>
     </div>
   </section>
 
-  <!-- ==================== FLUSSI ==================== -->
-  <section class="view" id="view-flussi">
-    <div class="view-header">
-      <h1>Flussi in ingresso</h1>
-      <span class="sub" id="flussi-counter"></span>
-      <span class="spacer"></span>
-      <span class="demo-chip">microservizi di import per cliente</span>
+  <!-- ============ SPEDIZIONI ============ -->
+  <section class="view" id="view-spedizioni" data-view="spedizioni">
+    <div class="view-head">
+      <h1>Spedizioni</h1>
+      <p>Normalizzazione anagrafica, assegnazione vettore e ciclo di stato.</p>
     </div>
-    <div class="layout-side">
-      <div id="dt-flussi"></div>
-      <div class="card" id="flusso-detail">
-        <h3>Dettaglio cliente</h3>
-        <p class="muted small">Seleziona un cliente dalla tabella per vedere configurazione e regole custom.</p>
-      </div>
-    </div>
-  </section>
 
-  <!-- ==================== GIACENZE ==================== -->
-  <section class="view" id="view-giacenze">
-    <div class="view-header">
-      <h1>Giacenze</h1>
-      <span class="sub">Gestione riga per riga o massiva sul filtro corrente</span>
+    <div class="subtabs" data-subtabs="spedizioni">
+      <button class="subtab is-active" data-subview="elenco">Elenco spedizioni</button>
+      <button class="subtab" data-subview="coda">Coda di lavorazione</button>
+      <button class="subtab" data-subview="colli">Colli madre &amp; sotto-colli</button>
+      <button class="subtab" data-subview="diff">Differenziali peso/misure</button>
     </div>
-    <div id="dt-giacenze"></div>
-  </section>
 
-  <!-- ==================== E-COMMERCE ==================== -->
-  <section class="view" id="view-ecommerce">
-    <div class="view-header">
-      <h1>Connettore e-commerce</h1>
-      <span class="sub">Vista del cliente finale collegato ai marketplace</span>
-    </div>
-    <div class="kpis" id="ecom-kpis"></div>
-    <div class="info-box">🔁 <strong>Flusso invertito — Vinted:</strong> a differenza degli altri marketplace (interrogati dal connettore), Vinted <em>notifica</em> gli ordini via push. Gli ordini Vinted arrivano quindi in tempo reale e sono contrassegnati con il badge «push».</div>
-    <div id="dt-ecom"></div>
-  </section>
-
-  <!-- ==================== TRACKING ==================== -->
-  <section class="view" id="view-tracking">
-    <div class="track-hero">
-      <h2>Traccia la tua spedizione</h2>
-      <p>Inserisci il codice della lettera di vettura</p>
-      <div class="track-form">
-        <input id="track-input" placeholder="es. LDV-2026-01187" aria-label="Codice lettera di vettura">
-        <button class="btn btn-accent" id="track-btn">Cerca</button>
-      </div>
-      <div class="track-suggest" id="track-suggest">Prova con:</div>
-    </div>
-    <div id="track-result"></div>
-  </section>
-
-  <!-- ==================== APP OPERATIVA ==================== -->
-  <section class="view" id="view-appop">
-    <div class="view-header">
-      <h1>App operativa — magazzino e padroncini</h1>
-      <span class="sub">Simulazione web dell'app mobile per presa in carico e consegna</span>
-    </div>
-    <div class="phone-wrap">
-      <div class="phone">
-        <div class="phone-status"><span>09:41</span><span>▮▮▮ 82%</span></div>
-        <div class="phone-app-head">CT Driver <div class="sub" id="phone-mode-label"></div></div>
-        <div class="phone-body" id="phone-body"></div>
-      </div>
-      <div class="card" style="flex:1;min-width:280px">
-        <h3>Configurazione simulazione</h3>
-        <div class="form-row">
-          <label>Tipo vettore</label>
-          <select id="appop-mode" class="inline-select" style="max-width:none;width:100%">
-            <option value="padroncino">Linea propria (padroncino) — con borderò digitale</option>
-            <option value="terzo">Corriere esterno — senza borderò interno</option>
+    <!-- ELENCO -->
+    <div class="subview is-active" data-subview-panel="elenco">
+      <div class="toolbar">
+        <div class="toolbar-filters">
+          <select id="filter-stato-spedizione">
+            <option value="">Tutti gli stati</option>
+          </select>
+          <select id="filter-vettore-spedizione">
+            <option value="">Tutti i vettori</option>
+          </select>
+          <select id="filter-mandante-spedizione">
+            <option value="">Tutti i mandanti</option>
           </select>
         </div>
-        <div class="info-box"><strong>Differenza chiave:</strong> il borderò digitale interno (elenco colli affidati con firma di presa in carico) esiste <em>solo</em> per le linee proprie. Per i corrieri esterni la presa in carico avviene sui sistemi del corriere.</div>
-        <div class="warn-box"><strong>Foto obbligatoria:</strong> la conferma di consegna richiede sempre una foto (simulata) prima di poter chiudere la spedizione.</div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost" id="btn-select-all">Seleziona tutto</button>
+          <button class="btn btn-secondary" id="btn-fix-cap">Correggi CAP non validi</button>
+          <button class="btn btn-secondary" id="btn-normalize-phone">Normalizza numeri</button>
+          <button class="btn btn-secondary" id="btn-apply-service">Applica servizio accessorio</button>
+          <button class="btn btn-primary" id="btn-generate-waybill">Genera lettera di vettura</button>
+        </div>
       </div>
-    </div>
-  </section>
 
-  <!-- ==================== UTENTI ==================== -->
-  <section class="view" id="view-utenti">
-    <div class="view-header">
-      <h1>Utenti, ruoli e livelli di accesso</h1>
-      <span class="sub">Quattro livelli: Piattaforma · Back office · Mandanti/Sottocontratti · Clienti finali</span>
-    </div>
-    <div class="layout-side">
-      <div id="dt-utenti"></div>
-      <div class="card" id="perm-panel">
-        <h3>Permessi per modulo</h3>
-        <p class="muted small">Seleziona un utente dalla tabella per vedere e simulare la modifica dei permessi.</p>
+      <div class="table-wrap">
+        <table class="data-table" id="table-spedizioni">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="check-all-head"></th>
+              <th>ID spedizione</th>
+              <th>Mandante</th>
+              <th>Destinatario</th>
+              <th>CAP</th>
+              <th>Località / Prov.</th>
+              <th>Stato CAP</th>
+              <th>Telefono</th>
+              <th>Vettore</th>
+              <th>Stato</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-spedizioni"></tbody>
+        </table>
       </div>
+      <p class="table-note" id="tbl-count-note"></p>
     </div>
-  </section>
 
-  <!-- ==================== CONFIGURAZIONI / ARCHITETTURA ==================== -->
-  <section class="view" id="view-config">
-    <div class="view-header">
-      <h1>Configurazioni · Architettura tecnica</h1>
-      <span class="sub">Vista concettuale: message broker, consumer, rate limit vettori</span>
-    </div>
-    <div class="arch-grid">
-      <div>
-        <div class="card">
-          <h3>Coda messaggi (message broker)</h3>
-          <div class="kv" style="grid-template-columns:180px 1fr">
-            <dt>Messaggi in coda</dt><dd class="mono" id="q-depth">—</dd>
-            <dt>Throughput</dt><dd class="mono" id="q-thr">—</dd>
-            <dt>Consumer attivi</dt><dd class="mono" id="q-cons">—</dd>
+    <!-- CODA -->
+    <div class="subview" data-subview-panel="coda">
+      <div class="kanban" id="kanban-coda">
+        <div class="kanban-col" data-status="revisione">
+          <div class="kanban-col-head">
+            <h3>In revisione</h3><span class="pill" id="count-revisione">0</span>
           </div>
-          <div class="queue-meter"><div id="q-meter" style="width:12%"></div></div>
-          <p class="tiny">Spegnendo un servizio qui sotto, la coda si accumula (simulato).</p>
-          <div id="svc-list"></div>
+          <div class="kanban-list" id="list-revisione"></div>
+        </div>
+        <div class="kanban-col" data-status="staging">
+          <div class="kanban-col-head">
+            <h3>In staging</h3><span class="pill" id="count-staging">0</span>
+          </div>
+          <div class="kanban-list" id="list-staging"></div>
+        </div>
+        <div class="kanban-col" data-status="parcheggio">
+          <div class="kanban-col-head">
+            <h3>Parcheggio / Pronte per etichettatura</h3><span class="pill" id="count-parcheggio">0</span>
+          </div>
+          <div class="kanban-list" id="list-parcheggio"></div>
         </div>
       </div>
-      <div>
-        <div class="card">
-          <h3>Rate limit per vettore</h3>
-          <p class="tiny">Limite API, volume richieste, throttling e distribuzione su più nodi. Il mini-grafico mostra lo storico orario simulato delle ultime 24 h (barre arancio = picchi vicini al limite).</p>
-          <div id="rl-list"></div>
+    </div>
+
+    <!-- COLLI MADRE -->
+    <div class="subview" data-subview-panel="colli">
+      <div class="tree-wrap" id="tree-colli"></div>
+    </div>
+
+    <!-- DIFFERENZIALI -->
+    <div class="subview" data-subview-panel="diff">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID spedizione</th>
+              <th>Peso dichiarato</th>
+              <th>Peso reale</th>
+              <th>Dimensioni dichiarate</th>
+              <th>Dimensioni reali</th>
+              <th>Differenziale</th>
+              <th>Impatto prezzo</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-differenziali"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LISTINI ============ -->
+  <section class="view" id="view-listini" data-view="listini">
+    <div class="view-head">
+      <h1>Listini e tariffe</h1>
+      <p>Listini di costo e di vendita, scaglioni, ricarichi e storicità.</p>
+    </div>
+
+    <div class="listini-layout">
+      <div class="card">
+        <div class="card-head">
+          <h3>Listini configurati</h3>
+          <button class="btn btn-secondary btn-sm" id="btn-duplica-listino">Duplica listino</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-listini">
+            <thead>
+              <tr>
+                <th>Nome listino</th>
+                <th>Tipo</th>
+                <th>Cliente / mandante</th>
+                <th>Validità</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-listini"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3 id="scaglioni-title">Scaglioni — seleziona un listino</h3>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table data-table-dense" id="table-scaglioni">
+            <thead>
+              <tr>
+                <th>Peso (da–a)</th>
+                <th>Peso vol.</th>
+                <th>Prezzo base</th>
+                <th>Fuel surch.</th>
+                <th>Tasse</th>
+                <th>Maggioraz.</th>
+                <th>Agente %</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-scaglioni"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Storicità listini per cliente</h3>
+        <select id="select-storicita-cliente"></select>
+      </div>
+      <div class="timeline" id="timeline-listini"></div>
+    </div>
+  </section>
+
+  <!-- ============ FLUSSI IN INGRESSO ============ -->
+  <section class="view" id="view-flussi" data-view="flussi">
+    <div class="view-head">
+      <h1>Flussi in ingresso</h1>
+      <p>34 flussi/microservizi cliente (CSV/TXT) in acquisizione dal centro di smistamento.</p>
+    </div>
+
+    <div class="kpi-grid kpi-grid-4" id="flussi-kpi"></div>
+
+    <div class="toolbar">
+      <div class="toolbar-filters">
+        <select id="filter-stato-flusso">
+          <option value="">Tutti gli stati</option>
+          <option value="ok">OK</option>
+          <option value="errore">Errore</option>
+          <option value="coda">In coda</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table" id="table-flussi">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Tipo flusso</th>
+            <th>Stato ultimo import</th>
+            <th>Data / ora ultimo import</th>
+            <th>Microservizio</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-flussi"></tbody>
+      </table>
+    </div>
+    <p class="table-note">Vista rappresentativa: 12 flussi mostrati su 34 configurati complessivamente.</p>
+  </section>
+
+  <!-- ============ GIACENZE / TRACKING ============ -->
+  <section class="view" id="view-giacenze" data-view="giacenze">
+    <div class="view-head">
+      <h1>Giacenze &amp; Tracking pubblico</h1>
+      <p>Ricerca spedizione e gestione svincolo autonomo per il cliente finale.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Tracking pubblico</h3></div>
+      <div class="tracking-search">
+        <input type="text" id="tracking-input" placeholder="Inserisci codice lettera di vettura (es. AE-2026-004821)">
+        <button class="btn btn-primary" id="btn-tracking-search">Cerca</button>
+      </div>
+      <div id="tracking-result"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Spedizioni in giacenza</h3>
+        <span class="eyebrow">Richiedono una decisione del destinatario</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID spedizione</th>
+              <th>Destinatario</th>
+              <th>Motivo giacenza</th>
+              <th>Da</th>
+              <th>Azione</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-giacenze"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OPERATIVITÀ ============ -->
+  <section class="view" id="view-operativita" data-view="operativita">
+    <div class="view-head">
+      <h1>Operatività di magazzino e padroncini</h1>
+      <p>Vista semplificata dell'app usata da operatori e vettori sul campo.</p>
+    </div>
+
+    <div class="op-grid">
+      <div class="card">
+        <div class="card-head"><h3>Presa in carico collo</h3></div>
+        <div class="op-form">
+          <input type="text" id="op-scan-input" placeholder="Scansiona / digita codice collo">
+          <button class="btn btn-primary" id="btn-op-scan">Bip</button>
+        </div>
+        <ul class="scan-log" id="scan-log"></ul>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Conferma consegna</h3></div>
+        <div class="op-form">
+          <input type="text" id="op-delivery-code" placeholder="Codice collo">
+          <div class="photo-upload" id="photo-upload">
+            <span id="photo-upload-label">📷 Foto prova di consegna (obbligatoria)</span>
+          </div>
+          <button class="btn btn-primary" id="btn-op-confirm">Conferma consegna</button>
+        </div>
+        <p class="hint" id="delivery-hint"></p>
+      </div>
+
+      <div class="card card-wide">
+        <div class="card-head">
+          <h3>Configurazione per vettore</h3>
+          <span class="eyebrow">Padroncini vs corrieri esterni</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Vettore</th><th>Tipo</th><th>Borderò digitale</th><th>App bip attiva</th></tr></thead>
+            <tbody id="tbody-vettori-op"></tbody>
+          </table>
         </div>
       </div>
     </div>
   </section>
 
-</main>
+  <!-- ============ QAPLA ============ -->
+  <section class="view" id="view-qapla" data-view="qapla">
+    <div class="view-head">
+      <h1>Qapla / connettore e-commerce</h1>
+      <p>Portale per i clienti finali collegato ai marketplace.</p>
+    </div>
 
-<div id="modal-root"></div>
-<div id="toasts"></div>
+    <div class="subtabs" data-subtabs="qapla">
+      <button class="subtab is-active" data-subview="ordini">Ordini marketplace</button>
+      <button class="subtab" data-subview="giacenze-qapla">Gestione giacenze</button>
+      <button class="subtab" data-subview="consultazione">Consultazione spedizioni</button>
+    </div>
+
+    <div class="subview is-active" data-subview-panel="ordini">
+      <div class="toolbar">
+        <div class="toolbar-filters">
+          <select id="filter-marketplace">
+            <option value="">Tutti i marketplace</option>
+            <option value="Amazon">Amazon</option>
+            <option value="Shopify">Shopify</option>
+            <option value="eBay">eBay</option>
+            <option value="Vinted">Vinted</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Marketplace</th><th>Ordine</th><th>Cliente finale</th><th>Flusso</th><th>Stato integrazione</th></tr></thead>
+          <tbody id="tbody-qapla-ordini"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="subview" data-subview-panel="giacenze-qapla">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>ID spedizione</th><th>Marketplace</th><th>Stato</th></tr></thead>
+          <tbody id="tbody-qapla-giacenze"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="subview" data-subview-panel="consultazione">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Ordine</th><th>Marketplace</th><th>Stato spedizione</th></tr></thead>
+          <tbody id="tbody-qapla-consultazione"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ UTENTI ============ -->
+  <section class="view" id="view-utenti" data-view="utenti">
+    <div class="view-head">
+      <h1>Utenti e ruoli</h1>
+      <p>Struttura commerciale a 4 livelli con permessi granulari per modulo.</p>
+    </div>
+
+    <div class="listini-layout">
+      <div class="card">
+        <div class="card-head"><h3>Utenti</h3></div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-utenti">
+            <thead><tr><th>Nome</th><th>Ruolo</th><th>Livello</th><th>Permessi</th></tr></thead>
+            <tbody id="tbody-utenti"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3 id="perm-panel-title">Permessi — seleziona un utente</h3></div>
+        <div id="perm-panel" class="perm-panel"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONFIGURAZIONI ============ -->
+  <section class="view" id="view-config" data-view="config">
+    <div class="view-head">
+      <h1>Configurazioni — Architettura tecnica</h1>
+      <p>Vista concettuale del message broker e dei rate limit dei vettori.</p>
+    </div>
+
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-head">
+          <h3>Message broker</h3>
+          <span class="eyebrow">Coda &amp; consumer</span>
+        </div>
+        <div class="broker-stats" id="broker-stats"></div>
+        <div class="service-list" id="service-list"></div>
+      </div>
+
+      <div class="card card-wide">
+        <div class="card-head">
+          <h3>Rate limit vettori</h3>
+          <span class="eyebrow">Throttling &amp; distribuzione nodi</span>
+        </div>
+        <div id="rate-limits"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ============ MODALI ============ -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal-container"></div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
 
 <script src="app.js"></script>
 </body>

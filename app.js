@@ -1,1797 +1,993 @@
-/* ============================================================
-   CT Solution — Demo gestionale spedizioni (v2)
-   app.js — mock data, componente tabella riutilizzabile,
-   logica di interazione lato client (nessun backend)
-   ============================================================ */
-'use strict';
+/* =========================================================
+   AIR ENTERPRISE — mock data & interazioni (solo frontend)
+   ========================================================= */
 
-/* ---------------------------------------------------------- *
- * 0. Helper generici
- * ---------------------------------------------------------- */
-const $  = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-const el = (tag, attrs = {}, html = '') => {
-  const n = document.createElement(tag);
-  Object.entries(attrs).forEach(([k, v]) => {
-    if (k === 'class') n.className = v;
-    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v);
-  });
-  if (html) n.innerHTML = html;
-  return n;
+/* ---------- MOCK DATA ---------- */
+
+const MANDANTI = ["FarmaDistrib SpA","Jigsaw Moda","ModaExpress","TechImport Srl","Chiapparino Logistica","Vinted Reselling","NordFood","EditoriaOggi"];
+
+const VETTORI = ["DHL","SDA","GLS","Padroncino Rossi","Padroncino Bianchi","Padroncino Verdi","(non assegnato)"];
+
+const STATI_SPEDIZIONE = ["In revisione","In staging","In sospeso","Parcheggio","Pronta per etichettatura"];
+
+const SERVIZI_ACCESSORI = ["SMS preavviso","Consegna al piano","Assicurazione","Contrassegno"];
+
+// quali servizi sono supportati da ciascun vettore
+const COMPATIBILITA_VETTORE = {
+  "DHL": ["SMS preavviso","Assicurazione"],
+  "SDA": ["SMS preavviso","Assicurazione","Contrassegno"],
+  "GLS": ["SMS preavviso","Consegna al piano","Assicurazione","Contrassegno"],
+  "Padroncino Rossi": ["Consegna al piano","SMS preavviso"],
+  "Padroncino Bianchi": ["Consegna al piano"],
+  "Padroncino Verdi": ["SMS preavviso","Consegna al piano","Contrassegno"],
+  "(non assegnato)": []
 };
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmtEur = n => n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
-const fmtDT  = iso => iso ? iso.replace('T', ' ').slice(0, 16) : '—';
-const nowStr = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-// PRNG deterministico: la demo mostra sempre gli stessi dati
-let _seed = 20260721;
-const rnd = () => (_seed = (_seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-const rint = (a, b) => a + Math.floor(rnd() * (b - a + 1));
-const pick = arr => arr[Math.floor(rnd() * arr.length)];
+const CITTA = [
+  {loc:"Modena", prov:"MO", cap:"41121"},
+  {loc:"Bologna", prov:"BO", cap:"40121"},
+  {loc:"Reggio Emilia", prov:"RE", cap:"42121"},
+  {loc:"Carpi", prov:"MO", cap:"41012"},
+  {loc:"Sassuolo", prov:"MO", cap:"41049"},
+  {loc:"Parma", prov:"PR", cap:"43121"},
+  {loc:"Ferrara", prov:"FE", cap:"44121"},
+];
 
-function toast(msg, kind = '') {
-  const t = el('div', { class: `toast ${kind}` }, msg);
-  $('#toasts').appendChild(t);
-  setTimeout(() => t.remove(), 3800);
+function randFrom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function pad(n,len){ return String(n).padStart(len,"0"); }
+
+let shipmentSeq = 4800;
+function makeShipment(overrides={}){
+  shipmentSeq++;
+  const city = randFrom(CITTA);
+  const capValid = Math.random() > 0.25;
+  const phoneValid = Math.random() > 0.3;
+  const base = {
+    id: `AE-2026-${pad(shipmentSeq,6)}`,
+    mandante: randFrom(MANDANTI),
+    destinatario: randFrom(["M. Bianchi","L. Ferrari","G. Colombo","S. Ricci","A. Romano","P. Marino","E. Greco","D. Conti"]),
+    cap: capValid ? city.cap : String(10000+Math.floor(Math.random()*89999)),
+    localita: city.loc,
+    provincia: city.prov,
+    capValida: capValid,
+    telefono: phoneValid ? "+39 333 " + pad(Math.floor(Math.random()*10000000),7) : "nel campo note",
+    telefonoValida: phoneValid,
+    vettore: "(non assegnato)",
+    stato: "In revisione",
+    servizi: [],
+  };
+  return Object.assign(base, overrides);
 }
 
-/* ---------------------------------------------------------- *
- * 1. Anagrafiche di base
- * ---------------------------------------------------------- */
-const MANDANTI = [
-  'Pharma Ligure S.p.A.', 'ElettroHouse S.r.l.', 'Vinello & Co.',
-  'ModaExpress S.r.l.', 'TechnoParts S.p.A.', 'Cosmetici Riviera'
+let SHIPMENTS = [
+  ...Array.from({length:6}, () => makeShipment({stato:"In revisione"})),
+  ...Array.from({length:5}, () => makeShipment({stato:"In staging", vettore: randFrom(VETTORI.slice(0,6))})),
+  ...Array.from({length:4}, () => makeShipment({stato:"Parcheggio", vettore: randFrom(VETTORI.slice(0,6)), capValida:true, telefonoValida:true})),
+  ...Array.from({length:4}, () => makeShipment({stato:"Pronta per etichettatura", vettore: randFrom(VETTORI.slice(0,6)), capValida:true, telefonoValida:true})),
 ];
 
-const VETTORI = [
-  { id: 'CA', nome: 'Corriere A', tipo: 'terzo' },
-  { id: 'CB', nome: 'Corriere B', tipo: 'terzo' },
-  { id: 'CC', nome: 'Corriere C', tipo: 'terzo' },
-  { id: 'P1', nome: 'Padroncino Nord-Ovest', tipo: 'proprio' },
-  { id: 'P2', nome: 'Padroncino Riviera',    tipo: 'proprio' },
-  { id: 'P3', nome: 'Padroncino Val Padana', tipo: 'proprio' }
+let selectedShipments = new Set();
+
+// FLUSSI IN INGRESSO
+const FLUSSI_CLIENTI = [
+  {cliente:"Chiapparino Logistica", tipo:"CSV", stato:"ok", micro:"Istanza dedicata", regole:"Spedizioni per Modena → consegna al piano."},
+  {cliente:"Jigsaw Moda", tipo:"TXT", stato:"ok", micro:"Istanza dedicata", regole:"Tutte le spedizioni → SMS di preavviso obbligatorio."},
+  {cliente:"FarmaDistrib SpA", tipo:"CSV", stato:"errore", micro:"Configurazione condivisa", regole:"Controllo lotto/scadenza; blocco se temperatura non tracciata."},
+  {cliente:"Vinted Reselling", tipo:"CSV", stato:"in coda", micro:"Configurazione condivisa", regole:"Colli singoli, nessun servizio accessorio di default."},
+  {cliente:"ModaExpress", tipo:"TXT", stato:"ok", micro:"Istanza dedicata", regole:"Reso gratuito entro 14gg, etichetta pre-generata."},
+  {cliente:"TechImport Srl", tipo:"CSV", stato:"ok", micro:"Configurazione condivisa", regole:"Assicurazione automatica sopra 500€ di valore dichiarato."},
+  {cliente:"NordFood", tipo:"CSV", stato:"errore", micro:"Istanza dedicata", regole:"Catena del freddo: priorità massima in smistamento."},
+  {cliente:"EditoriaOggi", tipo:"TXT", stato:"in coda", micro:"Configurazione condivisa", regole:"Consegna standard, nessuna regola custom."},
+  {cliente:"Chiapparino Logistica – Farma", tipo:"CSV", stato:"ok", micro:"Istanza dedicata", regole:"Sottocontratto farmaceutico: firma obbligatoria alla consegna."},
+  {cliente:"Jigsaw Moda – Outlet", tipo:"CSV", stato:"ok", micro:"Configurazione condivisa", regole:"Spedizioni outlet → nessuna assicurazione."},
+  {cliente:"Vinted Reselling – Pro", tipo:"TXT", stato:"in coda", micro:"Istanza dedicata", regole:"Venditori Pro: borderò giornaliero automatico."},
+  {cliente:"TechImport Srl – B2B", tipo:"CSV", stato:"ok", micro:"Istanza dedicata", regole:"Consegna solo giorni feriali, preavviso telefonico."},
 ];
-const vettoreByNome = nome => VETTORI.find(v => v.nome === nome);
 
-const SERVIZI = ['Consegna al piano', 'SMS di preavviso', 'Consegna su appuntamento', 'Contrassegno', 'Reso documenti'];
-// Matrice di compatibilità servizio → vettori che lo supportano
-const COMPAT = {
-  'Consegna al piano':        ['Corriere A', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'SMS di preavviso':         ['Corriere A', 'Corriere B', 'Corriere C', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'Consegna su appuntamento': ['Corriere B', 'Padroncino Nord-Ovest', 'Padroncino Riviera'],
-  'Contrassegno':             ['Corriere A', 'Corriere B'],
-  'Reso documenti':           ['Corriere A', 'Corriere C', 'Padroncino Val Padana']
-};
-const servizioCompatibile = (servizio, vettoreNome) => !vettoreNome || (COMPAT[servizio] || []).includes(vettoreNome);
-
-const STATI_SPED = ['In revisione', 'In staging', 'In sospeso', 'Parcheggio', 'Pronta per etichettatura', 'In transito', 'Consegnata', 'In giacenza'];
-// Priorità logica per l'ordinamento dei badge di stato ("In sospeso" prima di "Consegnata")
-const STATO_PRIORITA = ['In sospeso', 'In revisione', 'In staging', 'Parcheggio', 'Pronta per etichettatura', 'In giacenza', 'In transito', 'Consegnata'];
-const statoBadgeCls = s => ({
-  'In sospeso': 'err', 'In revisione': 'warn', 'In staging': 'info', 'Parcheggio': 'brand',
-  'Pronta per etichettatura': 'accent', 'In transito': 'info', 'Consegnata': 'ok', 'In giacenza': 'err'
-}[s] || '');
-
-const LOCALITA = [
-  ['Genova','GE','16121'], ['Genova','GE','16145'], ['Savona','SV','17100'], ['Imperia','IM','18100'],
-  ['La Spezia','SP','19121'], ['Torino','TO','10121'], ['Alessandria','AL','15121'], ['Milano','MI','20121'],
-  ['Milano','MI','20154'], ['Pavia','PV','27100'], ['Cuneo','CN','12100'], ['Novara','NO','28100'],
-  ['Sanremo','IM','18038'], ['Rapallo','GE','16035'], ['Chiavari','GE','16043'], ['Asti','AT','14100']
+// LISTINI
+const LISTINI = [
+  {id:"L-COST-001", nome:"Costo Nazionale Standard", tipo:"Costo", cliente:"—", inizio:"2025-01-01", fine:"2025-12-31",
+    scaglioni:[
+      {peso:"0–3 kg", volumetrico:"3 kg", base:4.20, fuel:0.35, tasse:0.10, magg:"—", agente:"—"},
+      {peso:"3–10 kg", volumetrico:"10 kg", base:6.80, fuel:0.55, tasse:0.15, magg:"Isole +2,00€", agente:"—"},
+      {peso:"10–30 kg", volumetrico:"30 kg", base:11.90, fuel:0.90, tasse:0.25, magg:"Isole +3,50€", agente:"—"},
+    ]},
+  {id:"L-VEND-001", nome:"Vendita Chiapparino Logistica", tipo:"Vendita", cliente:"Chiapparino Logistica", inizio:"2025-01-01", fine:"2025-12-31",
+    scaglioni:[
+      {peso:"0–3 kg", volumetrico:"3 kg", base:5.20, fuel:0.35, tasse:0.10, magg:"—", agente:"8%"},
+      {peso:"3–10 kg", volumetrico:"10 kg", base:7.90, fuel:0.55, tasse:0.15, magg:"Isole +2,00€", agente:"8%"},
+      {peso:"10–30 kg", volumetrico:"30 kg", base:10.50, fuel:0.90, tasse:0.25, magg:"Isole +3,50€", agente:"8%", perdita:true},
+    ]},
+  {id:"L-VEND-002", nome:"Vendita Jigsaw Moda", tipo:"Vendita", cliente:"Jigsaw Moda", inizio:"2025-03-01", fine:"2026-02-28",
+    scaglioni:[
+      {peso:"0–3 kg", volumetrico:"3 kg", base:5.80, fuel:0.35, tasse:0.10, magg:"—", agente:"6%"},
+      {peso:"3–10 kg", volumetrico:"10 kg", base:8.60, fuel:0.55, tasse:0.15, magg:"Isole +2,00€", agente:"6%"},
+    ]},
+  {id:"L-VEND-002F", nome:"Vendita Jigsaw Moda (futuro)", tipo:"Vendita", cliente:"Jigsaw Moda", inizio:"2026-03-01", fine:"2027-02-28",
+    scaglioni:[
+      {peso:"0–3 kg", volumetrico:"3 kg", base:6.10, fuel:0.35, tasse:0.10, magg:"—", agente:"6%"},
+      {peso:"3–10 kg", volumetrico:"10 kg", base:9.00, fuel:0.55, tasse:0.15, magg:"Isole +2,00€", agente:"6%"},
+    ]},
+  {id:"L-COST-002", nome:"Costo Extra-UE", tipo:"Costo", cliente:"—", inizio:"2025-01-01", fine:"2025-12-31",
+    scaglioni:[
+      {peso:"0–5 kg", volumetrico:"5 kg", base:14.00, fuel:1.20, tasse:0.40, magg:"Dogana +5,00€", agente:"—"},
+    ]},
 ];
-const NOMI = ['Rossi Maria','Bianchi Luca','Ferraro Anna','Parodi Giulio','Costa Elena','Repetto Sara','Oliveri Marco','Traverso Paola','Canepa Dario','Schiaffino Rita','Bruno Andrea','Gallo Chiara','Ricci Fabio','Moretti Silvia','Grasso Pietro','De Luca Irene','Ferrari Nadia','Villa Stefano','Romano Carla','Testa Enrico'];
-const OPERATORI = ['M. Bruzzone', 'A. Vitali', 'S. Piaggio', 'L. Ratto'];
 
-/* ---------------------------------------------------------- *
- * 2. Spedizioni (dataset principale, ~64 righe)
- * ---------------------------------------------------------- */
-function makeSpedizioni() {
-  const out = [];
-  for (let i = 1; i <= 64; i++) {
-    const [localita, provincia, capOk] = pick(LOCALITA);
-    const capValido = rnd() > 0.22;
-    const cap = capValido ? capOk : pick([capOk.slice(0, 4), capOk.slice(0, 3) + 'X0', '00000', capOk.slice(1)]);
-    const telOk = rnd() > 0.28;
-    const telefono = telOk ? '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999) : pick(['3' + rint(200000000, 899999999), '010-' + rint(100000, 999999), '39' + rint(3200000000, 3899999999)]);
-    const stato = pick(STATI_SPED);
-    const haVettore = !['In revisione', 'In staging', 'In sospeso'].includes(stato) || rnd() > 0.6;
-    const vettore = haVettore ? pick(VETTORI).nome : null;
-    const nServ = rint(0, 2);
-    const servizi = [...new Set(Array.from({ length: nServ }, () => pick(SERVIZI)))];
-    const pesoDich = +(rnd() * 28 + 0.5).toFixed(1);
-    const haDiff = rnd() > 0.68;
-    const pesoReale = haDiff ? +(pesoDich * (1 + (rnd() * 0.5 - 0.1))).toFixed(1) : pesoDich;
-    const giorno = rint(1, 21), ora = rint(7, 19);
-    const dataIn = `2026-07-${String(giorno).padStart(2, '0')} ${String(ora).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`;
-    const ldv = ['Pronta per etichettatura', 'In transito', 'Consegnata', 'In giacenza'].includes(stato) ? `LDV-2026-0${1100 + i}` : null;
+// UTENTI
+const UTENTI = [
+  {nome:"Marco Guidetti", ruolo:"Admin piattaforma", livello:1, permessi:["Spedizioni","Listini","Giacenze","Qapla","Utenti","Configurazioni","Flussi"]},
+  {nome:"Elena Sartori", ruolo:"Operatore Air Enterprise", livello:2, permessi:["Spedizioni","Giacenze","Flussi"]},
+  {nome:"Chiapparino Logistica (mandante)", ruolo:"Cliente mandante", livello:3, permessi:["Spedizioni (sola consultazione)","Giacenze"]},
+  {nome:"Jigsaw Moda (mandante)", ruolo:"Cliente mandante", livello:3, permessi:["Spedizioni (sola consultazione)"]},
+  {nome:"Cliente finale — S. Ricci", ruolo:"Cliente finale", livello:4, permessi:["Tracking pubblico"]},
+  {nome:"Ilaria Conte", ruolo:"Customer care", livello:2, permessi:["Giacenze","Spedizioni (sola consultazione)"]},
+];
+const MODULI_PERMESSO = ["Spedizioni","Listini","Giacenze","Qapla","Flussi","Utenti","Configurazioni"];
 
-    // Storico stati coerente con lo stato corrente
-    const flowIdx = { 'In revisione': 0, 'In staging': 1, 'In sospeso': 1, 'Parcheggio': 2, 'Pronta per etichettatura': 3, 'In transito': 4, 'Consegnata': 5, 'In giacenza': 5 };
-    const flow = ['In revisione', 'In staging', 'Parcheggio', 'Pronta per etichettatura', 'In transito', stato === 'In giacenza' ? 'In giacenza' : 'Consegnata'];
-    const storico = flow.slice(0, flowIdx[stato] + 1).map((s, ix) => ({
-      stato: ix === flowIdx[stato] ? stato : s,
-      data: `2026-07-${String(Math.min(giorno + ix, 21)).padStart(2, '0')} ${String(Math.min(ora + ix, 23)).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`,
-      operatore: pick(OPERATORI)
-    }));
+// GIACENZE
+const GIACENZE = [
+  {id:"AE-2026-004711", dest:"L. Ferrari", motivo:"Destinatario assente (2° tentativo)", da:"3 giorni", stato:"aperta"},
+  {id:"AE-2026-004698", dest:"G. Colombo", motivo:"Indirizzo incompleto", da:"1 giorno", stato:"aperta"},
+  {id:"AE-2026-004650", dest:"P. Marino", motivo:"Rifiutato dal destinatario", da:"5 giorni", stato:"aperta"},
+];
 
-    const note = rnd() > 0.7 ? [{ testo: pick(['Il destinatario chiede consegna dopo le 17.', 'Citofono guasto: chiamare al telefono.', 'Merce fragile, già segnalato al vettore.', 'Verificare CAP con il mandante.']), data: dataIn, autore: pick(OPERATORI) }] : [];
+// QAPLA
+const QAPLA_ORDINI = [
+  {marketplace:"Amazon", ordine:"AMZ-77213", cliente:"S. Ricci", flusso:"Notifica da Amazon (push)", stato:"Spedizione generata"},
+  {marketplace:"Shopify", ordine:"SHP-10042", cliente:"D. Conti", flusso:"Richiesta spedizione", stato:"In attesa"},
+  {marketplace:"eBay", ordine:"EBY-99871", cliente:"A. Romano", flusso:"Richiesta spedizione", stato:"Errore"},
+  {marketplace:"Vinted", ordine:"VNT-33110", cliente:"E. Greco", flusso:"Richiesta spedizione", stato:"Spedizione generata"},
+  {marketplace:"Amazon", ordine:"AMZ-77298", cliente:"M. Bianchi", flusso:"Notifica da Amazon (push)", stato:"In attesa"},
+];
 
-    const tracking = storico.map(h => ({
-      data: h.data,
-      evento: { 'In revisione': 'Spedizione acquisita dal flusso cliente', 'In staging': 'Dati validati — in attesa di assegnazione vettore', 'Parcheggio': 'In parcheggio presso centro di smistamento', 'Pronta per etichettatura': 'Etichetta pronta per la stampa', 'In transito': 'Affidata al vettore — in transito', 'Consegnata': 'Consegnata al destinatario', 'In giacenza': 'Tentativo di consegna non riuscito — in giacenza', 'In sospeso': 'Lavorazione sospesa: dati da verificare' }[h.stato] || h.stato,
-      luogo: ['In transito', 'Consegnata', 'In giacenza'].includes(h.stato) ? localita : 'Centro di smistamento — Genova Bolzaneto',
-      interno: false, operatore: h.operatore
-    }));
-    if (rnd() > 0.5) tracking.splice(1, 0, { data: storico[0].data, evento: 'Verifica interna anagrafica destinatario', luogo: 'Back office', interno: true, operatore: pick(OPERATORI), notaInterna: 'Controllo qualità dati su flusso mandante' });
-
-    out.push({
-      id: `SPD-2026-${String(100 + i).padStart(5, '0')}`,
-      mandante: pick(MANDANTI),
-      destinatario: pick(NOMI),
-      indirizzo: `Via ${pick(['Roma', 'Garibaldi', 'XX Settembre', 'Colombo', 'Mazzini', 'Cavour'])} ${rint(1, 120)}`,
-      cap, capValido, localita, provincia,
-      telefono, telOk,
-      vettore, stato, servizi,
-      pesoDich, pesoReale, dims: `${rint(20, 60)}×${rint(20, 50)}×${rint(10, 40)} cm`,
-      dataIn, ldv, colloMadre: null,
-      storico, note, tracking
-    });
-  }
-  return out;
-}
-const SPEDIZIONI = makeSpedizioni();
-const spedById = id => SPEDIZIONI.find(s => s.id === id);
-
-/* ---- Colli madre: 3 bancali che raggruppano alcune spedizioni ---- */
+// COLLI MADRE
 const COLLI_MADRE = [
-  { id: 'CM-2026-0041', descr: 'Bancale Pharma Ligure — lotto 07/26', figli: [] },
-  { id: 'CM-2026-0042', descr: 'Bancale ElettroHouse — elettrodomestici', figli: [] },
-  { id: 'CM-2026-0043', descr: 'Bancale ModaExpress — resi stagionali', figli: [] }
+  {id:"BANC-3301", peso:"420 kg", dim:"120×80×140 cm", sotto:[
+    {id:"AE-2026-004811", stato:"Consegnato"},
+    {id:"AE-2026-004812", stato:"Consegnato"},
+    {id:"AE-2026-004813", stato:"Non consegnato"},
+  ]},
+  {id:"BANC-3302", peso:"180 kg", dim:"100×80×90 cm", sotto:[
+    {id:"AE-2026-004820", stato:"Consegnato"},
+    {id:"AE-2026-004821", stato:"Consegnato"},
+  ]},
+  {id:"BANC-3303", peso:"305 kg", dim:"120×100×110 cm", sotto:[
+    {id:"AE-2026-004830", stato:"Non consegnato"},
+    {id:"AE-2026-004831", stato:"Non consegnato"},
+    {id:"AE-2026-004832", stato:"Consegnato"},
+    {id:"AE-2026-004833", stato:"Non consegnato"},
+  ]},
 ];
-SPEDIZIONI.slice(0, 11).forEach((s, i) => {
-  const cm = COLLI_MADRE[i % 3];
-  cm.figli.push(s.id); s.colloMadre = cm.id;
-});
-function statoAggregato(cm) {
-  const stati = cm.figli.map(id => spedById(id).stato);
-  const cons = stati.filter(s => s === 'Consegnata').length;
-  if (cons === stati.length) return ['Consegnato', 'ok'];
-  if (cons === 0) return ['Non consegnato', 'err'];
-  return [`Consegnato parzialmente (${cons}/${stati.length})`, 'warn'];
-}
 
-/* ---------------------------------------------------------- *
- * 3. Flussi in ingresso
- * ---------------------------------------------------------- */
-const REGOLE_POOL = [
-  ['Tutte le spedizioni del mandante', 'SMS di preavviso automatico'],
-  ['Destinazione = Milano', 'Consegna al piano attivata'],
-  ['Peso > 20 kg', 'Instradamento su linea propria'],
-  ['CAP in zona 191xx', 'Etichetta Corriere B'],
-  ['Campo "note" contiene FRAGILE', 'Flag merce fragile su etichetta'],
-  ['Contrassegno presente', 'Blocco in revisione manuale']
+// DIFFERENZIALI PESO/MISURE
+const DIFFERENZIALI = [
+  {id:"AE-2026-004650", pd:"5,0 kg", pr:"7,4 kg", dd:"30×20×20", dr:"34×24×22", diff:"+2,4 kg", impatto:"+2,50 €"},
+  {id:"AE-2026-004698", pd:"2,0 kg", pr:"2,1 kg", dd:"20×15×10", dr:"20×15×10", diff:"+0,1 kg", impatto:"+0,00 €"},
+  {id:"AE-2026-004711", pd:"12,0 kg", pr:"15,8 kg", dd:"40×30×30", dr:"45×35×34", diff:"+3,8 kg", impatto:"+6,10 €"},
+  {id:"AE-2026-004821", pd:"1,5 kg", pr:"1,4 kg", dd:"15×15×10", dr:"15×15×10", diff:"−0,1 kg", impatto:"+0,00 €"},
 ];
-const FLUSSI = Array.from({ length: 15 }, (_, i) => {
-  const stato = pick(['OK', 'OK', 'OK', 'Errore', 'In coda']);
+
+// TRACKING mock
+function mockTrackingResult(code){
+  const stati = ["In transito","Consegnata","In giacenza"];
+  const stato = randFrom(stati);
   return {
-    cliente: ['Spedizioniere Alfa', 'Logistica Beta', 'Gamma Trasporti', 'Delta Cargo', 'Epsilon Express', 'Zeta Freight', 'Eta Logistics', 'Theta Spedizioni', 'Iota Trans', 'Kappa Line', 'Lambda Cargo', 'My Shipping', 'Ni Express', 'Xi Logistica', 'Omicron Srl'][i],
-    tipo: pick(['CSV', 'CSV', 'TXT']),
-    stato,
-    ultimo: `2026-07-${String(rint(18, 21)).padStart(2, '0')} ${String(rint(5, 18)).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`,
-    micro: pick(['Istanza dedicata', 'Configurazione condivisa', 'Configurazione condivisa']),
-    regole: [...new Set(Array.from({ length: rint(1, 3) }, () => pick(REGOLE_POOL)))]
+    code, stato,
+    eventi: [
+      {t:"Lun 20/07 · 08:12", label:"Presa in carico presso il mittente"},
+      {t:"Lun 20/07 · 14:40", label:"Arrivo al centro di smistamento Air Enterprise"},
+      {t:"Mar 21/07 · 07:05", label:"Assegnata al vettore per la consegna"},
+      {t:"Mar 21/07 · 11:20", label: stato === "Consegnata" ? "Consegnata al destinatario" : (stato === "In giacenza" ? "Tentativo di consegna non riuscito — in giacenza" : "In transito verso il destinatario")},
+    ]
   };
+}
+
+// OPERATIVITÀ
+const VETTORI_OP = [
+  {nome:"DHL", tipo:"Corriere esterno", bordero:false, app:false},
+  {nome:"SDA", tipo:"Corriere esterno", bordero:false, app:false},
+  {nome:"GLS", tipo:"Corriere esterno", bordero:false, app:false},
+  {nome:"Padroncino Rossi", tipo:"Linea propria", bordero:true, app:true},
+  {nome:"Padroncino Bianchi", tipo:"Linea propria", bordero:true, app:true},
+  {nome:"Padroncino Verdi", tipo:"Linea propria", bordero:true, app:true},
+];
+
+// ARCHITETTURA TECNICA
+let BROKER_STATE = {
+  coda: 128,
+  consumer: 6,
+  servizi: [
+    {nome:"Servizio Normalizzazione CAP", online:true},
+    {nome:"Servizio Notifiche SMS", online:true},
+    {nome:"Servizio Import Flussi Clienti", online:false},
+    {nome:"Servizio Generazione Lettera di Vettura", online:true},
+  ]
+};
+const RATE_LIMITS = [
+  {vettore:"DHL", limite:60, volumeMin:38, nodi:["Nodo 1","Nodo 2"]},
+  {vettore:"SDA", limite:40, volumeMin:41, nodi:["Nodo 1","Nodo 2","Nodo 3"]},
+  {vettore:"GLS", limite:50, volumeMin:22, nodi:["Nodo 1"]},
+];
+
+/* ---------- UTILITY UI ---------- */
+
+function showToast(msg, type=""){
+  const stack = document.getElementById("toast-stack");
+  const el = document.createElement("div");
+  el.className = "toast" + (type ? ` toast-${type}` : "");
+  el.textContent = msg;
+  stack.appendChild(el);
+  setTimeout(()=>{ el.style.opacity="0"; el.style.transition="opacity .3s"; setTimeout(()=>el.remove(),300); }, 3200);
+}
+
+function openModal(titleHTML, bodyHTML, footHTML){
+  const overlay = document.getElementById("modal-overlay");
+  const container = document.getElementById("modal-container");
+  container.innerHTML = `
+    <div class="modal-head"><h2>${titleHTML}</h2><button class="modal-close" id="modal-close-btn">✕</button></div>
+    <div class="modal-body">${bodyHTML}</div>
+    ${footHTML ? `<div class="modal-foot">${footHTML}</div>` : ""}
+  `;
+  overlay.classList.add("is-open");
+  document.getElementById("modal-close-btn").addEventListener("click", closeModal);
+}
+function closeModal(){
+  document.getElementById("modal-overlay").classList.remove("is-open");
+}
+document.addEventListener("click", (e)=>{
+  if(e.target.id === "modal-overlay") closeModal();
 });
-const FLUSSI_TOTALI = 34;
 
-/* ---------------------------------------------------------- *
- * 4. Listini — tre livelli
- * ---------------------------------------------------------- */
-const SCAGLIONI = ['0–2 kg', '2–5 kg', '5–10 kg', '10–20 kg', '20–30 kg', '30–50 kg'];
-const ZONE = ['Nazionale', 'UE', 'Extra-UE'];
-
-// 4a. Listini dei vettori terzi (base costo esterna, non negoziabile)
-const LISTINI_VETTORE = {};
-VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
-  const rows = [];
-  SCAGLIONI.forEach((sc, si) => ZONE.forEach((z, zi) => {
-    rows.push({
-      vettore: v.nome, scaglione: sc, zona: z,
-      prezzo: +(3.2 + si * 1.9 + zi * 4.5 + vi * 0.45 + rnd() * 0.8).toFixed(2),
-      fuel: +(4 + vi * 1.5 + rnd() * 2).toFixed(1),
-      validita: vi === 1 ? '01/07/2026 – 31/12/2026' : '01/03/2026 – 31/12/2026'
-    });
-  }));
-  LISTINI_VETTORE[v.nome] = {
-    rows,
-    aggiornato: ['03/03/2026', '28/06/2026', '15/05/2026'][vi],
-    versione: ['03/2026', '07/2026', '05/2026'][vi],
-    nota: `Listino ${v.nome} aggiornato dal fornitore il ${['03/03/2026', '28/06/2026', '15/05/2026'][vi]} — dati di esempio`
+function badgeForCapState(valid){
+  return valid ? `<span class="badge badge-success">CAP valido</span>` : `<span class="badge badge-warning">CAP da correggere</span>`;
+}
+function badgeForStato(stato){
+  const map = {
+    "In revisione":"badge-neutral","In staging":"badge-blue","In sospeso":"badge-warning",
+    "Parcheggio":"badge-blue","Pronta per etichettatura":"badge-success"
   };
-});
+  return `<span class="badge ${map[stato]||'badge-neutral'}"><span class="badge-dot"></span>${stato}</span>`;
+}
 
-// 4b. Listini di costo interni (derivati dai listini vettore, o calcolati per le linee proprie)
-const LISTINI_COSTO = [];
-VETTORI.forEach(v => {
-  SCAGLIONI.forEach((sc, si) => {
-    const base = v.tipo === 'terzo'
-      ? LISTINI_VETTORE[v.nome].rows.find(r => r.scaglione === sc && r.zona === 'Nazionale').prezzo
-      : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2); // costo calcolato linea propria
-    LISTINI_COSTO.push({
-      vettore: v.nome, tipo: v.tipo === 'terzo' ? 'Derivato da vettore' : 'Calcolato (linea propria)',
-      scaglione: sc, zona: 'Nazionale',
-      costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base, // 3% oneri interni sul listino vettore
-      costoVettore: v.tipo === 'terzo' ? base : null,
-      origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino'
+/* ---------- NAVIGATION ---------- */
+
+function setupNav(){
+  document.querySelectorAll(".nav-item").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      const view = btn.dataset.view;
+      document.querySelectorAll(".view").forEach(v=>v.classList.remove("is-active"));
+      document.getElementById(`view-${view}`).classList.add("is-active");
     });
   });
-});
 
-// 4c. Listini di vendita per mandante (derivati dal costo, alcune righe in perdita)
-const LISTINI_VENDITA = [];
-MANDANTI.forEach((m, mi) => {
-  const vetRef = VETTORI[mi % VETTORI.length].nome;
-  SCAGLIONI.forEach((sc, si) => {
-    const costoRow = LISTINI_COSTO.find(r => r.vettore === vetRef && r.scaglione === sc);
-    let vendita = +(costoRow.costo * (1.18 + rnd() * 0.22)).toFixed(2);
-    // righe in perdita: alcune sotto il costo interno, almeno una sotto il listino vettore
-    if (mi === 1 && si === 3) vendita = +(costoRow.costo * 0.93).toFixed(2);                 // sotto costo interno
-    if (mi === 2 && si === 4 && costoRow.costoVettore) vendita = +(costoRow.costoVettore * 0.9).toFixed(2); // sotto listino VETTORE
-    if (mi === 4 && si === 5) vendita = +(costoRow.costo * 0.96).toFixed(2);
-    LISTINI_VENDITA.push({
-      mandante: m, vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
-      costo: costoRow.costo, costoVettore: costoRow.costoVettore, vendita,
-      margine: +(vendita - costoRow.costo).toFixed(2)
+  document.querySelectorAll(".subtabs").forEach(group=>{
+    group.querySelectorAll(".subtab").forEach(tab=>{
+      tab.addEventListener("click", ()=>{
+        group.querySelectorAll(".subtab").forEach(t=>t.classList.remove("is-active"));
+        tab.classList.add("is-active");
+        const parent = group.parentElement;
+        const target = tab.dataset.subview;
+        parent.querySelectorAll(":scope > .subview").forEach(p=>p.classList.remove("is-active"));
+        parent.querySelector(`:scope > .subview[data-subview-panel="${target}"]`).classList.add("is-active");
+      });
     });
   });
-});
+}
 
-const STORICO_LISTINI = {};
-MANDANTI.forEach(m => {
-  STORICO_LISTINI[m] = [
-    { periodo: '01/01/2025 → 31/12/2025', label: 'Listino 2025 (archiviato)', stato: 'archiviato' },
-    { periodo: '01/01/2026 → 31/12/2026', label: 'Listino 2026 — attivo', stato: 'attivo' },
-    { periodo: '01/01/2027 → 31/12/2027', label: 'Listino 2027 — già negoziato, in attesa di decorrenza', stato: 'futuro' }
+/* ---------- DASHBOARD ---------- */
+
+function renderDashboard(){
+  const kpis = [
+    {label:"Spedizioni oggi", value: SHIPMENTS.length, cls:""},
+    {label:"In staging", value: SHIPMENTS.filter(s=>s.stato==="In staging").length, cls:"kpi-warning"},
+    {label:"In giacenza", value: GIACENZE.length, cls:"kpi-danger"},
+    {label:"Flussi con errore", value: FLUSSI_CLIENTI.filter(f=>f.stato==="errore").length, cls:"kpi-warning"},
   ];
-});
+  document.getElementById("kpi-grid").innerHTML = kpis.map(k=>`
+    <div class="kpi-card ${k.cls}">
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-label">${k.label}</div>
+    </div>`).join("");
 
-/* ---------------------------------------------------------- *
- * 5. Giacenze, e-commerce, utenti, differenziali
- * ---------------------------------------------------------- */
-const GIACENZE = SPEDIZIONI.filter(s => s.stato === 'In giacenza').map(s => ({
-  id: s.id, ref: s, mandante: s.mandante, destinatario: s.destinatario, localita: s.localita,
-  motivo: pick(['Destinatario assente', 'Indirizzo errato', 'Rifiuto merce', 'Chiuso per ferie']),
-  giorni: rint(1, 12), esito: 'Aperta'
-}));
-// integriamo con giacenze extra per avere volume
-for (let i = 0; i < 10; i++) {
-  const s = pick(SPEDIZIONI.filter(x => x.stato === 'Consegnata'));
-  GIACENZE.push({ id: s.id + '-G', ref: s, mandante: s.mandante, destinatario: s.destinatario, localita: s.localita, motivo: pick(['Destinatario assente', 'Indirizzo errato', 'Rifiuto merce']), giorni: rint(1, 14), esito: 'Aperta' });
-}
-
-const MARKETPLACES = ['Amazon', 'Shopify', 'eBay', 'Vinted'];
-const ORDINI_ECOM = Array.from({ length: 28 }, (_, i) => {
-  const mp = pick(MARKETPLACES);
-  return {
-    ordine: `ORD-${mp.slice(0, 2).toUpperCase()}-${7000 + i}`,
-    marketplace: mp,
-    cliente: pick(NOMI),
-    data: `2026-07-${String(rint(14, 21)).padStart(2, '0')} ${String(rint(8, 22)).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`,
-    valore: +(rnd() * 240 + 12).toFixed(2),
-    statoInt: mp === 'Vinted' ? pick(['Ricevuto (push)', 'Ricevuto (push)', 'Errore push']) : pick(['Sincronizzato', 'Sincronizzato', 'In coda', 'Errore API']),
-    spedizione: rnd() > 0.35 ? pick(SPEDIZIONI).id : null,
-    giacenza: rnd() > 0.85
+  const counts = {
+    "In revisione": SHIPMENTS.filter(s=>s.stato==="In revisione").length,
+    "In staging": SHIPMENTS.filter(s=>s.stato==="In staging").length,
+    "Parcheggio": SHIPMENTS.filter(s=>s.stato==="Parcheggio").length,
+    "Pronta per etichettatura": SHIPMENTS.filter(s=>s.stato==="Pronta per etichettatura").length,
   };
-});
+  const max = Math.max(...Object.values(counts), 1);
+  document.getElementById("dash-queue-mini").innerHTML = Object.entries(counts).map(([label,count])=>`
+    <div class="funnel-row">
+      <div class="funnel-label">${label}</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${(count/max*100)}%"></div></div>
+      <div class="funnel-count">${count}</div>
+    </div>`).join("");
 
-const LIVELLI_UTENTE = ['Piattaforma', 'Back office', 'Mandante/Sottocontratto', 'Cliente finale'];
-const MODULI = ['Spedizioni', 'Listini', 'Flussi', 'Giacenze', 'E-commerce', 'Utenti', 'Configurazioni'];
-const UTENTI = Array.from({ length: 19 }, (_, i) => {
-  const livello = pick(LIVELLI_UTENTE);
-  return {
-    nome: NOMI[i % NOMI.length],
-    email: NOMI[i % NOMI.length].toLowerCase().replace(' ', '.') + '@' + (livello === 'Cliente finale' ? 'mail.it' : livello.startsWith('Mandante') ? 'mandante.it' : 'ctsolution.demo'),
-    livello,
-    mandante: livello === 'Mandante/Sottocontratto' ? pick(MANDANTI) : (livello === 'Cliente finale' ? pick(MANDANTI) : '—'),
-    ultimoAccesso: `2026-07-${String(rint(10, 21)).padStart(2, '0')} ${String(rint(7, 22)).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`,
-    stato: pick(['Attivo', 'Attivo', 'Attivo', 'Sospeso'])
-  };
-});
+  document.getElementById("dash-broker-mini").innerHTML = `
+    <div class="mini-broker-stat"><div class="num">${BROKER_STATE.coda}</div><div class="lbl">Messaggi in coda</div></div>
+    <div class="mini-broker-stat"><div class="num">${BROKER_STATE.consumer}</div><div class="lbl">Consumer attivi</div></div>
+    <div class="mini-broker-stat"><div class="num">${BROKER_STATE.servizi.filter(s=>s.online).length}/${BROKER_STATE.servizi.length}</div><div class="lbl">Servizi online</div></div>
+  `;
 
-const DIFFERENZIALI = SPEDIZIONI.filter(s => s.pesoReale !== s.pesoDich).map(s => {
-  const diff = +(s.pesoReale - s.pesoDich).toFixed(1);
-  return {
-    id: s.id, mandante: s.mandante, vettore: s.vettore || '—',
-    pesoDich: s.pesoDich, pesoReale: s.pesoReale, diff,
-    impatto: +(Math.max(0, diff) * (1.15 + rnd() * 0.8)).toFixed(2)
-  };
-});
-
-/* ---------------------------------------------------------- *
- * 6. Modale, conferme, form helper
- * ---------------------------------------------------------- */
-function openModal({ title, body, actions = [], size = '' , onClose }) {
-  const back = el('div', { class: 'modal-backdrop', onclick: e => { if (e.target === back) close(); } });
-  const modal = el('div', { class: `modal ${size}` });
-  const head = el('div', { class: 'modal-head' });
-  head.appendChild(el('h3', {}, esc(title)));
-  head.appendChild(el('button', { class: 'modal-close', 'aria-label': 'Chiudi', onclick: () => close() }, '×'));
-  const bodyEl = el('div', { class: 'modal-body' });
-  if (typeof body === 'string') bodyEl.innerHTML = body; else bodyEl.appendChild(body);
-  modal.appendChild(head); modal.appendChild(bodyEl);
-  if (actions.length) {
-    const foot = el('div', { class: 'modal-foot' });
-    actions.forEach(a => foot.appendChild(el('button', { class: `btn ${a.cls || ''}`, onclick: () => { const r = a.onClick ? a.onClick(bodyEl, close) : null; if (r !== false && !a.keepOpen) close(); } }, a.label)));
-    modal.appendChild(foot);
-  }
-  back.appendChild(modal);
-  $('#modal-root').appendChild(back);
-  function close() { back.remove(); onClose && onClose(); }
-  document.addEventListener('keydown', function escH(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escH); } });
-  return { close, bodyEl };
-}
-
-/**
- * Riepilogo di conferma per azioni massive (obbligatorio prima
- * di eseguire un'azione "sull'intero filtro").
- */
-function confirmBulk({ azione, count, mode, dettagli = '', warnings = [], onConfirm }) {
-  let html = `<dl class="confirm-summary">
-    <dt>Azione</dt><dd>${esc(azione)}</dd>
-    <dt>Righe coinvolte</dt><dd><strong>${count}</strong> ${mode === 'filter' ? 'righe — <em>intero risultato del filtro corrente</em> (anche oltre la pagina visibile)' : 'righe selezionate con checkbox'}</dd>
-    ${dettagli ? `<dt>Dettaglio</dt><dd>${dettagli}</dd>` : ''}
-  </dl>`;
-  warnings.forEach(w => html += `<div class="warn-box">⚠️ ${w}</div>`);
-  if (!count) html = `<div class="err-box">Nessuna riga corrisponde alla selezione o al filtro corrente.</div>`;
-  openModal({
-    title: 'Conferma operazione massiva',
-    body: html,
-    actions: count ? [
-      { label: 'Annulla' },
-      { label: `Conferma su ${count} righe`, cls: 'btn-primary', onClick: () => onConfirm() }
-    ] : [{ label: 'Chiudi' }]
-  });
-}
-
-/* ---------------------------------------------------------- *
- * 7. Componente tabella riutilizzabile — renderDataTable(config)
- *    Pattern trasversale obbligatorio per TUTTE le tabelle:
- *    ordinamento per colonna (asc → desc → originale),
- *    filtro per singola colonna (testo / enum / range),
- *    paginazione reale, azioni massive su selezione o filtro.
- * ---------------------------------------------------------- */
-function renderDataTable(cfg) {
-  /* cfg = {
-       mount, title, data: () => rows[], rowKey: r => id,
-       columns: [{ key, label, ftype: 'text'|'enum'|'number'|'date'|null,
-                   sortable=true, render(r), sortValue(r), filterValue(r),
-                   statusOrder: [...], numeric: bool }],
-       pageSize, pageSizes, selectable, bulkActions: [{label, cls, run(sel, api)}],
-       rowActions(r, api) -> HTMLElement?, onRowClick(r), rowClass(r),
-       globalFilter: r => bool, countGlobalActive: () => int, onResetGlobal(),
-       noun: 'spedizioni' (per i testi del banner)
-  } */
-  const mount = typeof cfg.mount === 'string' ? $(cfg.mount) : cfg.mount;
-  const noun = cfg.noun || 'righe';
-  const state = {
-    sortKey: null, sortDir: null,           // null | 'asc' | 'desc'
-    colFilters: {},                          // key -> string | {min,max}
-    page: 1, pageSize: cfg.pageSize || 10,
-    selected: new Set(), allFilter: false
-  };
-
-  const colByKey = k => cfg.columns.find(c => c.key === k);
-
-  function rawValue(col, r) {
-    return col.filterValue ? col.filterValue(r) : (col.sortValue ? col.sortValue(r) : r[col.key]);
-  }
-
-  function filteredRows() {
-    let rows = cfg.data();
-    if (cfg.globalFilter) rows = rows.filter(cfg.globalFilter);
-    for (const [key, f] of Object.entries(state.colFilters)) {
-      const col = colByKey(key); if (!col) continue;
-      rows = rows.filter(r => {
-        const v = rawValue(col, r);
-        if (col.ftype === 'text')  return f === '' || String(v ?? '').toLowerCase().includes(f.toLowerCase());
-        if (col.ftype === 'enum')  return f === '' || String(v) === f;
-        if (col.ftype === 'number') {
-          const n = Number(v);
-          if (f.min !== '' && f.min != null && n < Number(f.min)) return false;
-          if (f.max !== '' && f.max != null && n > Number(f.max)) return false;
-          return true;
-        }
-        if (col.ftype === 'date') {
-          const d = String(v ?? '');
-          if (f.min && d.slice(0, 10) < f.min) return false;
-          if (f.max && d.slice(0, 10) > f.max) return false;
-          return true;
-        }
-        return true;
-      });
-    }
-    return rows;
-  }
-
-  function sortedRows(rows) {
-    if (!state.sortKey || !state.sortDir) return rows;      // ordine originale
-    const col = colByKey(state.sortKey);
-    const dir = state.sortDir === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      let va = col.sortValue ? col.sortValue(a) : a[col.key];
-      let vb = col.sortValue ? col.sortValue(b) : b[col.key];
-      if (col.statusOrder) {                                 // badge di stato: priorità logica
-        va = col.statusOrder.indexOf(va); vb = col.statusOrder.indexOf(vb);
-      }
-      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
-      return String(va ?? '').localeCompare(String(vb ?? ''), 'it', { numeric: true }) * dir;
-    });
-  }
-
-  function activeFilterCount() {
-    let n = 0;
-    for (const f of Object.values(state.colFilters)) {
-      if (typeof f === 'string') { if (f !== '') n++; }
-      else if (f && (f.min || f.max)) n++;
-    }
-    if (cfg.countGlobalActive) n += cfg.countGlobalActive();
-    return n;
-  }
-
-  function getSelection() {
-    const filt = filteredRows();
-    if (state.allFilter) return { mode: 'filter', rows: filt };
-    const rows = filt.filter(r => state.selected.has(cfg.rowKey(r)));
-    return { mode: 'rows', rows };
-  }
-
-  function clearSelection() { state.selected.clear(); state.allFilter = false; }
-
-  const api = {
-    refresh: render,
-    resetToFirstPage: () => { state.page = 1; },
-    getSelection, clearSelection,
-    getFilteredRows: filteredRows,
-    onFiltersChanged: () => { state.page = 1; clearSelection(); render(); },
-    state
-  };
-
-  function render() {
-    const filt = filteredRows();
-    const sorted = sortedRows(filt);
-    const totPages = Math.max(1, Math.ceil(sorted.length / state.pageSize));
-    if (state.page > totPages) state.page = totPages;
-    const start = (state.page - 1) * state.pageSize;
-    const pageRows = sorted.slice(start, start + state.pageSize);
-
-    mount.innerHTML = '';
-    const wrap = el('div', { class: 'dt-wrap' });
-
-    /* ---- Toolbar: titolo, azioni massive, filtri attivi ---- */
-    const tb = el('div', { class: 'dt-toolbar' });
-    if (cfg.title) tb.appendChild(el('span', { class: 'dt-title' }, esc(cfg.title)));
-    (cfg.bulkActions || []).forEach(a => {
-      tb.appendChild(el('button', { class: `btn btn-sm ${a.cls || ''}`, onclick: () => a.run(getSelection(), api) }, a.label));
-    });
-    tb.appendChild(el('span', { class: 'spacer' }));
-    const nf = activeFilterCount();
-    if (nf > 0) tb.appendChild(el('span', { class: 'dt-filter-count' }, `${nf} filtr${nf === 1 ? 'o' : 'i'} attiv${nf === 1 ? 'o' : 'i'}`));
-    tb.appendChild(el('button', {
-      class: 'btn btn-sm', disabled: nf === 0 ? 'disabled' : null,
-      onclick: () => { state.colFilters = {}; cfg.onResetGlobal && cfg.onResetGlobal(); api.onFiltersChanged(); }
-    }, 'Reset filtri'));
-    // rimuovi attributo disabled=null
-    if (nf === 0) tb.lastChild.setAttribute('disabled', ''); else tb.lastChild.removeAttribute('disabled');
-    wrap.appendChild(tb);
-
-    /* ---- Banner di selezione (pagina → intero filtro) ---- */
-    if (cfg.selectable) {
-      const selCount = filt.filter(r => state.selected.has(cfg.rowKey(r))).length;
-      if (state.allFilter) {
-        const b = el('div', { class: 'dt-selection-banner allfilter' });
-        b.innerHTML = `✔ Sono selezionate <strong>tutte le ${filt.length} ${esc(noun)}</strong> che rispettano il filtro attivo (anche oltre la pagina visibile). `;
-        b.appendChild(el('button', { class: 'btn-link', onclick: () => { clearSelection(); render(); } }, 'Annulla selezione'));
-        wrap.appendChild(b);
-      } else if (selCount > 0) {
-        const b = el('div', { class: 'dt-selection-banner' });
-        b.innerHTML = `Hai selezionato <strong>${selCount}</strong> righe${selCount >= pageRows.length ? ' di questa pagina' : ''}. `;
-        if (filt.length > selCount) {
-          b.appendChild(el('button', { class: 'btn-link', onclick: () => { state.allFilter = true; render(); } },
-            `Seleziona tutte le ${filt.length} ${esc(noun)} che rispettano il filtro attivo`));
-        }
-        wrap.appendChild(b);
-      }
-    }
-
-    /* ---- Tabella ---- */
-    const scroll = el('div', { class: 'dt-scroll' });
-    const table = el('table', { class: 'dt' });
-    const thead = el('thead');
-
-    // riga 1: intestazioni ordinabili
-    const trH = el('tr');
-    if (cfg.selectable) {
-      const th = el('th', { style: 'width:34px' });
-      const all = el('input', { type: 'checkbox', title: 'Seleziona tutto (pagina)' });
-      all.checked = pageRows.length > 0 && pageRows.every(r => state.allFilter || state.selected.has(cfg.rowKey(r)));
-      all.addEventListener('change', () => {
-        state.allFilter = false;
-        pageRows.forEach(r => all.checked ? state.selected.add(cfg.rowKey(r)) : state.selected.delete(cfg.rowKey(r)));
-        render();
-      });
-      th.appendChild(all); trH.appendChild(th);
-    }
-    cfg.columns.forEach(col => {
-      const sortable = col.sortable !== false;
-      const th = el('th', { class: (sortable ? 'sortable' : '') + (state.sortKey === col.key && state.sortDir ? ' sorted' : '') });
-      const ico = state.sortKey === col.key ? (state.sortDir === 'asc' ? '▲' : state.sortDir === 'desc' ? '▼' : '↕') : '↕';
-      th.innerHTML = `${esc(col.label)} ${sortable ? `<span class="sort-ico">${ico}</span>` : ''}`;
-      if (sortable) th.addEventListener('click', () => {
-        if (state.sortKey !== col.key) { state.sortKey = col.key; state.sortDir = 'asc'; }
-        else if (state.sortDir === 'asc') state.sortDir = 'desc';
-        else if (state.sortDir === 'desc') { state.sortKey = null; state.sortDir = null; }  // ritorno all'ordine originale
-        else state.sortDir = 'asc';
-        state.page = 1;
-        render();
-      });
-      trH.appendChild(th);
-    });
-    if (cfg.rowActions) trH.appendChild(el('th', {}, 'Azioni'));
-    thead.appendChild(trH);
-
-    // riga 2: filtri per colonna
-    const trF = el('tr', { class: 'dt-filter-row' });
-    if (cfg.selectable) trF.appendChild(el('th'));
-    cfg.columns.forEach(col => {
-      const th = el('th');
-      if (col.ftype === 'text') {
-        const inp = el('input', { class: 'dt-colfilter', placeholder: 'contiene…', value: state.colFilters[col.key] || '' });
-        inp.addEventListener('input', () => { state.colFilters[col.key] = inp.value; api.onFiltersChanged(); refocus(inp); });
-        th.appendChild(inp);
-      } else if (col.ftype === 'enum') {
-        const sel = el('select', { class: 'dt-colfilter' });
-        const vals = [...new Set(cfg.data().map(r => String(rawValue(col, r) ?? '')))].sort((a, b) => a.localeCompare(b, 'it'));
-        sel.appendChild(el('option', { value: '' }, 'Tutti'));
-        vals.forEach(v => sel.appendChild(el('option', { value: v }, esc(v || '—'))));
-        sel.value = state.colFilters[col.key] || '';
-        sel.addEventListener('change', () => { state.colFilters[col.key] = sel.value; api.onFiltersChanged(); });
-        th.appendChild(sel);
-      } else if (col.ftype === 'number' || col.ftype === 'date') {
-        const cur = state.colFilters[col.key] || { min: '', max: '' };
-        const box = el('div', { class: 'dt-range' });
-        const t = col.ftype === 'date' ? 'date' : 'number';
-        const mi = el('input', { class: 'dt-colfilter', type: t, placeholder: 'da', value: cur.min });
-        const ma = el('input', { class: 'dt-colfilter', type: t, placeholder: 'a', value: cur.max });
-        const upd = focusEl => () => { state.colFilters[col.key] = { min: mi.value, max: ma.value }; api.onFiltersChanged(); refocus(focusEl); };
-        mi.addEventListener('change', upd(mi)); ma.addEventListener('change', upd(ma));
-        box.appendChild(mi); box.appendChild(ma); th.appendChild(box);
-      }
-      trF.appendChild(th);
-    });
-    if (cfg.rowActions) trF.appendChild(el('th'));
-    thead.appendChild(trF);
-    table.appendChild(thead);
-
-    // il re-render distrugge gli input: ripristina il focus sul filtro attivo
-    let refocusSel = null;
-    function refocus(inp) { refocusSel = { key: inp.className, ph: inp.placeholder, val: inp.value }; }
-
-    /* ---- Corpo ---- */
-    const tbody = el('tbody');
-    if (!pageRows.length) {
-      const tr = el('tr');
-      const td = el('td', { colspan: cfg.columns.length + (cfg.selectable ? 1 : 0) + (cfg.rowActions ? 1 : 0) });
-      td.innerHTML = `<div class="dt-empty">Nessun risultato con i filtri attivi.<br><span class="tiny">Usa «Reset filtri» per ripartire dall'elenco completo.</span></div>`;
-      tr.appendChild(td); tbody.appendChild(tr);
-    }
-    pageRows.forEach(r => {
-      const key = cfg.rowKey(r);
-      const tr = el('tr', { class: [cfg.onRowClick ? 'clickable' : '', (state.allFilter || state.selected.has(key)) ? 'selected' : '', cfg.rowClass ? (cfg.rowClass(r) || '') : ''].join(' ') });
-      if (cfg.selectable) {
-        const td = el('td');
-        const cb = el('input', { type: 'checkbox' });
-        cb.checked = state.allFilter || state.selected.has(key);
-        cb.addEventListener('click', e => e.stopPropagation());
-        cb.addEventListener('change', () => {
-          if (state.allFilter) { state.allFilter = false; filt.forEach(x => state.selected.add(cfg.rowKey(x))); }
-          cb.checked ? state.selected.add(key) : state.selected.delete(key);
-          render();
-        });
-        td.appendChild(cb); tr.appendChild(td);
-      }
-      cfg.columns.forEach(col => {
-        const td = el('td', { class: col.numeric ? 'num' : '' });
-        if (col.render) { const out = col.render(r, api); if (out instanceof HTMLElement) td.appendChild(out); else td.innerHTML = out; }
-        else td.textContent = r[col.key] ?? '—';
-        tr.appendChild(td);
-      });
-      if (cfg.rowActions) {
-        const td = el('td');
-        td.addEventListener('click', e => e.stopPropagation());
-        const out = cfg.rowActions(r, api);
-        if (out) td.appendChild(out);
-        tr.appendChild(td);
-      }
-      if (cfg.onRowClick) tr.addEventListener('click', () => cfg.onRowClick(r));
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    scroll.appendChild(table);
-    wrap.appendChild(scroll);
-
-    /* ---- Paginazione ---- */
-    const pager = el('div', { class: 'dt-pager' });
-    const from = sorted.length ? start + 1 : 0;
-    const to = Math.min(start + state.pageSize, sorted.length);
-    pager.appendChild(el('span', {}, `${from}–${to} di <strong>${sorted.length}</strong> risultati (dopo i filtri)` + (sorted.length !== cfg.data().length ? ` <span class="tiny">· ${cfg.data().length} totali</span>` : '')));
-    pager.appendChild(el('span', { class: 'spacer' }));
-    const psLabel = el('label', {}, 'Righe per pagina ');
-    const psSel = el('select');
-    (cfg.pageSizes || [10, 25, 50]).forEach(n => psSel.appendChild(el('option', { value: n }, n)));
-    psSel.value = state.pageSize;
-    psSel.addEventListener('change', () => { state.pageSize = +psSel.value; state.page = 1; render(); });
-    psLabel.appendChild(psSel);
-    pager.appendChild(psLabel);
-    const prev = el('button', { class: 'pg-btn', onclick: () => { state.page--; render(); } }, '‹ Prec');
-    const next = el('button', { class: 'pg-btn', onclick: () => { state.page++; render(); } }, 'Succ ›');
-    if (state.page <= 1) prev.setAttribute('disabled', '');
-    if (state.page >= totPages) next.setAttribute('disabled', '');
-    pager.appendChild(prev);
-    pager.appendChild(el('span', { class: 'pg-num' }, `Pagina ${state.page} / ${totPages}`));
-    pager.appendChild(next);
-    wrap.appendChild(pager);
-
-    mount.appendChild(wrap);
-
-    // ripristino focus filtro testo dopo re-render
-    if (refocusSel) {
-      const cand = $$('input.dt-colfilter', wrap).find(i => i.value === refocusSel.val && i.placeholder === refocusSel.ph);
-      if (cand) { cand.focus(); const v = cand.value; cand.value = ''; cand.value = v; }
-      refocusSel = null;
-    }
-  }
-
-  render();
-  return api;
-}
-
-/* ---------------------------------------------------------- *
- * 8. Helper badge/celle comuni
- * ---------------------------------------------------------- */
-const badge = (txt, cls = '') => `<span class="badge ${cls}">${esc(txt)}</span>`;
-const badgeStato = s => badge(s, statoBadgeCls(s));
-const badgeCap = ok => ok ? badge('CAP valido', 'ok') : badge('CAP da correggere', 'err');
-const badgeTel = ok => ok ? badge('Formato E.164', 'ok') : badge('Non standard', 'warn');
-
-/* ============================================================
-   9. SEZIONE SPEDIZIONI
-   ============================================================ */
-const spedGlobal = { mandante: '', stato: '', vettore: '' };
-let dtSpedizioni = null;
-
-function initSpedGlobalFilters() {
-  const fill = (sel, vals, all) => {
-    sel.innerHTML = `<option value="">${all}</option>` + vals.map(v => `<option>${esc(v)}</option>`).join('');
-  };
-  fill($('#gf-mandante'), MANDANTI, 'Tutti i mandanti');
-  fill($('#gf-stato'), STATI_SPED, 'Tutti gli stati');
-  fill($('#gf-vettore'), VETTORI.map(v => v.nome).concat('— non assegnato —'), 'Tutti i vettori');
-  ['mandante', 'stato', 'vettore'].forEach(k => {
-    $('#gf-' + k).addEventListener('change', e => { spedGlobal[k] = e.target.value; dtSpedizioni.onFiltersChanged(); });
-  });
-}
-
-function spedGlobalFilter(r) {
-  if (spedGlobal.mandante && r.mandante !== spedGlobal.mandante) return false;
-  if (spedGlobal.stato && r.stato !== spedGlobal.stato) return false;
-  if (spedGlobal.vettore) {
-    if (spedGlobal.vettore === '— non assegnato —') { if (r.vettore) return false; }
-    else if (r.vettore !== spedGlobal.vettore) return false;
-  }
-  return true;
-}
-
-/* ---- Verifica incompatibilità servizi/vettore su un gruppo ---- */
-function incompatWarnings(rows, vettoreNome) {
-  const bad = rows.filter(r => r.servizi.some(s => !servizioCompatibile(s, vettoreNome)));
-  if (!bad.length) return [];
-  const esempi = bad.slice(0, 3).map(r => `<span class="mono">${r.id}</span>`).join(', ');
-  return [`<strong>${bad.length}</strong> spedizioni del gruppo hanno servizi accessori <strong>non supportati da ${esc(vettoreNome)}</strong> (es. ${esempi}${bad.length > 3 ? ', …' : ''}). Verranno assegnate comunque, ma i servizi incompatibili risulteranno disattivati.`];
-}
-
-/* ---- Azioni massive ---- */
-function bulkAssegnaVettore(sel, api) {
-  const body = el('div');
-  body.innerHTML = `<p class="small muted">L'azione verrà applicata a <strong>${sel.rows.length}</strong> spedizioni (${sel.mode === 'filter' ? 'intero risultato del filtro corrente' : 'selezione con checkbox'}).</p>
-    <div class="form-row"><label>Vettore da assegnare</label><select id="ba-vet">${VETTORI.map(v => `<option>${v.nome}</option>`).join('')}</select></div>
-    <div id="ba-warn"></div>`;
-  const refreshWarn = () => {
-    const w = incompatWarnings(sel.rows, $('#ba-vet', body).value);
-    $('#ba-warn', body).innerHTML = w.map(x => `<div class="warn-box">⚠️ ${x}</div>`).join('');
-  };
-  openModal({
-    title: 'Assegna vettore a selezione/filtro', body,
-    actions: [
-      { label: 'Annulla' },
-      { label: 'Continua', cls: 'btn-primary', onClick: (b, close) => {
-          const vet = $('#ba-vet', b).value;
-          close();
-          confirmBulk({
-            azione: `Assegna vettore «${vet}»`, count: sel.rows.length, mode: sel.mode,
-            warnings: incompatWarnings(sel.rows, vet).map(x => x),
-            onConfirm: () => {
-              sel.rows.forEach(r => {
-                r.vettore = vet;
-                r.storico.push({ stato: r.stato, data: nowStr(), operatore: 'M. Bruzzone', nota: `Vettore assegnato: ${vet} (massivo)` });
-              });
-              api.clearSelection(); api.refresh(); renderKanban();
-              toast(`Vettore «${vet}» assegnato a ${sel.rows.length} spedizioni`, 'ok');
-            }
-          });
-        } }
-    ]
-  });
-  setTimeout(refreshWarn, 0);
-  $('#ba-vet', body).addEventListener('change', refreshWarn);
-}
-
-function bulkCambiaStato(sel, api) {
-  const body = el('div');
-  body.innerHTML = `<p class="small muted">L'azione verrà applicata a <strong>${sel.rows.length}</strong> spedizioni (${sel.mode === 'filter' ? 'intero risultato del filtro corrente' : 'selezione con checkbox'}).</p>
-    <div class="form-row"><label>Nuovo stato</label><select id="bs-st">${STATI_SPED.map(s => `<option>${s}</option>`).join('')}</select></div>`;
-  openModal({
-    title: 'Cambia stato a selezione/filtro', body,
-    actions: [
-      { label: 'Annulla' },
-      { label: 'Continua', cls: 'btn-primary', onClick: (b, close) => {
-          const st = $('#bs-st', b).value;
-          close();
-          const senzaVet = st === 'Pronta per etichettatura' ? sel.rows.filter(r => !r.vettore).length : 0;
-          confirmBulk({
-            azione: `Cambia stato in «${st}»`, count: sel.rows.length, mode: sel.mode,
-            warnings: senzaVet ? [`<strong>${senzaVet}</strong> spedizioni non hanno ancora un vettore assegnato: passeranno allo stato richiesto ma non potranno generare la lettera di vettura.`] : [],
-            onConfirm: () => {
-              sel.rows.forEach(r => { r.stato = st; r.storico.push({ stato: st, data: nowStr(), operatore: 'M. Bruzzone' }); });
-              api.clearSelection(); api.refresh(); renderKanban();
-              toast(`Stato «${st}» applicato a ${sel.rows.length} spedizioni`, 'ok');
-            }
-          });
-        } }
-    ]
-  });
-}
-
-function bulkApplicaServizio(sel, api) {
-  const body = el('div');
-  body.innerHTML = `<p class="small muted">Applica un servizio accessorio a <strong>${sel.rows.length}</strong> spedizioni.</p>
-    <div class="form-row"><label>Servizio accessorio</label><select id="bsv">${SERVIZI.map(s => `<option>${s}</option>`).join('')}</select></div>
-    <div id="bsv-warn"></div>`;
-  const refreshWarn = () => {
-    const sv = $('#bsv', body).value;
-    const bad = sel.rows.filter(r => r.vettore && !servizioCompatibile(sv, r.vettore));
-    $('#bsv-warn', body).innerHTML = bad.length ? `<div class="warn-box">⚠️ <strong>${bad.length}</strong> spedizioni hanno un vettore che <strong>non supporta «${esc(sv)}»</strong>: per queste il servizio sarà aggiunto come «richiesto, non attivabile».</div>` : `<div class="info-box">✔ Il servizio è compatibile con i vettori di tutte le spedizioni del gruppo.</div>`;
-  };
-  openModal({
-    title: 'Applica servizio accessorio', body,
-    actions: [
-      { label: 'Annulla' },
-      { label: 'Continua', cls: 'btn-primary', onClick: (b, close) => {
-          const sv = $('#bsv', b).value; close();
-          const bad = sel.rows.filter(r => r.vettore && !servizioCompatibile(sv, r.vettore)).length;
-          confirmBulk({
-            azione: `Applica servizio «${sv}»`, count: sel.rows.length, mode: sel.mode,
-            warnings: bad ? [`${bad} spedizioni hanno vettori incompatibili con il servizio scelto.`] : [],
-            onConfirm: () => {
-              sel.rows.forEach(r => { if (!r.servizi.includes(sv)) r.servizi.push(sv); });
-              api.clearSelection(); api.refresh();
-              toast(`Servizio «${sv}» applicato a ${sel.rows.length} spedizioni`, 'ok');
-            }
-          });
-        } }
-    ]
-  });
-  setTimeout(refreshWarn, 0);
-  $('#bsv', body).addEventListener('change', refreshWarn);
-}
-
-function bulkCorreggiCap(sel, api) {
-  // opera SEMPRE sull'intero filtro attivo (come da requisito), non solo sulla selezione
-  const target = api.getFilteredRows().filter(r => !r.capValido);
-  confirmBulk({
-    azione: 'Correggi CAP non validi (mock)', count: target.length, mode: 'filter',
-    dettagli: 'Vengono considerate solo le righe con stato «CAP da correggere» all\'interno del risultato del filtro corrente.',
-    onConfirm: () => {
-      target.forEach(r => {
-        const loc = LOCALITA.find(l => l[0] === r.localita);
-        r.cap = loc ? loc[2] : '16121'; r.capValido = true;
-      });
-      api.refresh();
-      toast(`${target.length} CAP corretti e validati`, 'ok');
-    }
-  });
-}
-
-function bulkNormalizzaTel(sel, api) {
-  const target = api.getFilteredRows().filter(r => !r.telOk);
-  confirmBulk({
-    azione: 'Normalizza numeri di telefono (mock)', count: target.length, mode: 'filter',
-    dettagli: 'I numeri in formato non standard vengono riportati al formato internazionale +39 per l\'invio SMS.',
-    onConfirm: () => {
-      target.forEach(r => { r.telefono = '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999); r.telOk = true; });
-      api.refresh();
-      toast(`${target.length} numeri normalizzati`, 'ok');
-    }
-  });
-}
-
-/* ---- Tabella principale spedizioni ---- */
-function initSpedTable() {
-  dtSpedizioni = renderDataTable({
-    mount: '#dt-spedizioni',
-    title: 'Elenco spedizioni',
-    noun: 'spedizioni',
-    data: () => SPEDIZIONI,
-    rowKey: r => r.id,
-    selectable: true,
-    pageSize: 10,
-    globalFilter: spedGlobalFilter,
-    countGlobalActive: () => ['mandante', 'stato', 'vettore'].filter(k => spedGlobal[k]).length,
-    onResetGlobal: () => { spedGlobal.mandante = spedGlobal.stato = spedGlobal.vettore = ''; $('#gf-mandante').value = ''; $('#gf-stato').value = ''; $('#gf-vettore').value = ''; },
-    onRowClick: r => openShipDetail(r.id, 'modal'),
-    columns: [
-      { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>${r.colloMadre ? ' <span class="tag" title="Fa parte di un collo madre">CM</span>' : ''}` },
-      { key: 'mandante', label: 'Mandante', ftype: 'enum' },
-      { key: 'destinatario', label: 'Destinatario', ftype: 'text' },
-      { key: 'cap', label: 'CAP', ftype: 'text', render: r => `<span class="mono">${esc(r.cap)}</span>` },
-      { key: 'localita', label: 'Località', ftype: 'text' },
-      { key: 'provincia', label: 'Prov.', ftype: 'enum' },
-      { key: 'capValido', label: 'Validazione', ftype: 'enum', filterValue: r => r.capValido ? 'CAP valido' : 'CAP da correggere', sortValue: r => r.capValido ? 1 : 0, render: r => badgeCap(r.capValido) },
-      { key: 'telefono', label: 'Telefono', ftype: 'text', render: r => `<span class="mono">${esc(r.telefono)}</span><br>${badgeTel(r.telOk)}` },
-      { key: 'vettore', label: 'Vettore', ftype: 'enum', filterValue: r => r.vettore || '— non assegnato —',
-        render: (r, api) => {
-          const sel = el('select', { class: 'inline-select' });
-          sel.appendChild(el('option', { value: '' }, '— assegna —'));
-          VETTORI.forEach(v => sel.appendChild(el('option', { value: v.nome }, v.nome)));
-          sel.value = r.vettore || '';
-          sel.addEventListener('click', e => e.stopPropagation());
-          sel.addEventListener('change', () => {
-            r.vettore = sel.value || null;
-            toast(`Vettore ${sel.value ? 'assegnato' : 'rimosso'}: ${r.id}`);
-            api.refresh(); renderKanban();
-          });
-          return sel;
-        } },
-      { key: 'stato', label: 'Stato', ftype: 'enum', statusOrder: STATO_PRIORITA,
-        render: (r, api) => {
-          const box = el('div');
-          box.innerHTML = badgeStato(r.stato) + '<br>';
-          const sel = el('select', { class: 'inline-select', style: 'margin-top:3px' });
-          STATI_SPED.forEach(s => sel.appendChild(el('option', {}, s)));
-          sel.value = r.stato;
-          sel.addEventListener('click', e => e.stopPropagation());
-          sel.addEventListener('change', () => {
-            r.stato = sel.value;
-            r.storico.push({ stato: sel.value, data: nowStr(), operatore: 'M. Bruzzone' });
-            api.refresh(); renderKanban();
-          });
-          box.appendChild(sel);
-          return box;
-        } },
-      { key: 'pesoDich', label: 'Peso (kg)', ftype: 'number', numeric: true, render: r => r.pesoDich.toFixed(1) },
-      { key: 'dataIn', label: 'Ingresso', ftype: 'date', render: r => `<span class="mono tiny">${r.dataIn}</span>` }
-    ],
-    rowActions: (r) => {
-      const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
-      box.appendChild(el('button', { class: 'btn btn-sm', title: 'Apri in tab dedicata', onclick: () => openShipDetail(r.id, 'tab') }, 'Apri ↗'));
-      if (r.stato === 'Pronta per etichettatura') box.appendChild(el('button', { class: 'btn btn-sm btn-accent', onclick: () => openLdv(r) }, 'LDV'));
-      return box;
-    },
-    bulkActions: [
-      { label: 'Assegna vettore a selezione/filtro', cls: 'btn-primary', run: bulkAssegnaVettore },
-      { label: 'Cambia stato a selezione/filtro', cls: 'btn-primary', run: bulkCambiaStato },
-      { label: 'Applica servizio accessorio', run: bulkApplicaServizio },
-      { label: 'Correggi CAP non validi (filtro)', cls: 'btn-accent', run: bulkCorreggiCap },
-      { label: 'Normalizza numeri (filtro)', run: bulkNormalizzaTel }
-    ]
-  });
-}
-
-/* ---- Lettera di vettura (preview simulata) ---- */
-function openLdv(r) {
-  if (!r.ldv) r.ldv = `LDV-2026-0${1100 + rint(200, 900)}`;
-  const html = `
-  <div class="ldv">
-    <div class="ldv-head">
-      <div><div class="ldv-title">Lettera di vettura</div><div class="mono small">${r.ldv}</div></div>
-      <div class="ldv-barcode" aria-label="barcode simulato"></div>
-    </div>
-    <div class="ldv-grid">
-      <div class="ldv-cell"><div class="lbl">Mittente / Mandante</div><strong>${esc(r.mandante)}</strong><br>c/o CT Solution — Centro smistamento<br>Genova Bolzaneto</div>
-      <div class="ldv-cell"><div class="lbl">Destinatario</div><strong>${esc(r.destinatario)}</strong><br>${esc(r.indirizzo)}<br><span class="mono">${esc(r.cap)}</span> ${esc(r.localita)} (${esc(r.provincia)})</div>
-      <div class="ldv-cell"><div class="lbl">Codice spedizione</div><span class="mono">${r.id}</span></div>
-      <div class="ldv-cell"><div class="lbl">Vettore</div>${esc(r.vettore || 'NON ASSEGNATO')}</div>
-      <div class="ldv-cell"><div class="lbl">Peso / dimensioni</div>${r.pesoDich.toFixed(1)} kg — ${esc(r.dims)}</div>
-      <div class="ldv-cell"><div class="lbl">Servizi accessori</div>${r.servizi.length ? r.servizi.map(s => `<span class="tag">${esc(s)}</span>`).join('') : '<span class="muted">nessuno</span>'}</div>
-    </div>
-    <div class="ldv-foot">Documento di trasporto simulato — demo CT Solution. La stampa reale avverrà sul formato etichetta del vettore selezionato in base al CAP di destinazione e alle regole del mandante.</div>
-  </div>`;
-  openModal({
-    title: 'Genera lettera di vettura — anteprima', body: html, size: 'wide',
-    actions: [
-      { label: 'Chiudi' },
-      { label: 'Stampa (simulata)', cls: 'btn-primary', onClick: () => toast(`LDV ${r.ldv} inviata alla coda di stampa etichette`, 'ok') }
-    ]
-  });
-}
-
-/* ---- Kanban coda di staging ---- */
-function renderKanban() {
-  const cols = [
-    { titolo: 'In revisione', stati: ['In revisione'], next: 'In staging', nextLabel: 'Valida dati → Staging' },
-    { titolo: 'In staging', stati: ['In staging'], next: 'Parcheggio', nextLabel: 'Vettore ok → Parcheggio', needVettore: true },
-    { titolo: 'Parcheggio / Pronte per etichettatura', stati: ['Parcheggio', 'Pronta per etichettatura'], next: 'Pronta per etichettatura', nextLabel: 'Rendi disponibile per etichettatura' }
+  const activity = [
+    {t:"08:12", msg:"Import flusso Chiapparino Logistica completato (CSV, 214 righe)."},
+    {t:"08:40", msg:"3 spedizioni passate automaticamente da In revisione a In staging."},
+    {t:"09:05", msg:"Errore import flusso FarmaDistrib SpA — verifica campo lotto."},
+    {t:"09:20", msg:"Listino Vendita Jigsaw Moda duplicato con ricarico +6%."},
+    {t:"09:47", msg:"Nuova notifica push da Amazon per ordine AMZ-77213."},
   ];
-  const root = $('#staging-kanban'); root.innerHTML = '';
-  cols.forEach(c => {
-    const rows = SPEDIZIONI.filter(s => c.stati.includes(s.stato)).slice(0, 6);
-    const tot = SPEDIZIONI.filter(s => c.stati.includes(s.stato)).length;
-    const col = el('div', { class: 'kanban-col' });
-    col.appendChild(el('h4', {}, `${esc(c.titolo)} <span class="count">${tot}</span>`));
-    rows.forEach(r => {
-      const card = el('div', { class: 'kcard', onclick: () => openShipDetail(r.id, 'modal') });
-      card.innerHTML = `<div class="k-id">${r.id}</div>
-        <div class="k-dest">${esc(r.destinatario)} · ${esc(r.localita)}</div>
-        <div class="k-meta">${esc(r.mandante)} · ${r.vettore ? esc(r.vettore) : '<span style="color:var(--warn)">vettore da assegnare</span>'} ${r.stato === 'Pronta per etichettatura' ? badge('Pronta', 'accent') : ''}</div>`;
-      const act = el('div', { class: 'k-actions' });
-      if (r.stato !== 'Pronta per etichettatura') {
-        const btn = el('button', { class: 'btn btn-sm btn-primary', onclick: e => {
-          e.stopPropagation();
-          if (c.needVettore && !r.vettore) { toast(`⚠ ${r.id}: assegnare prima un vettore`, 'err'); return; }
-          r.stato = c.next;
-          r.storico.push({ stato: c.next, data: nowStr(), operatore: 'M. Bruzzone' });
-          renderKanban(); dtSpedizioni.refresh();
-          toast(`${r.id} → ${c.next}`, 'ok');
-        } }, 'Avanza di stato ▸');
-        act.appendChild(btn);
-      } else {
-        act.appendChild(el('button', { class: 'btn btn-sm btn-accent', onclick: e => { e.stopPropagation(); openLdv(r); } }, 'Genera LDV'));
+  document.getElementById("activity-feed").innerHTML = activity.map(a=>`
+    <li><span class="activity-time">${a.t}</span><span>${a.msg}</span></li>`).join("");
+}
+
+/* ---------- SPEDIZIONI: ELENCO ---------- */
+
+function populateSpedizioniFilters(){
+  const statoSel = document.getElementById("filter-stato-spedizione");
+  const vettoreSel = document.getElementById("filter-vettore-spedizione");
+  const mandanteSel = document.getElementById("filter-mandante-spedizione");
+  STATI_SPEDIZIONE.forEach(s=> statoSel.insertAdjacentHTML("beforeend", `<option value="${s}">${s}</option>`));
+  VETTORI.forEach(v=> vettoreSel.insertAdjacentHTML("beforeend", `<option value="${v}">${v}</option>`));
+  MANDANTI.forEach(m=> mandanteSel.insertAdjacentHTML("beforeend", `<option value="${m}">${m}</option>`));
+  [statoSel,vettoreSel,mandanteSel].forEach(sel=> sel.addEventListener("change", renderSpedizioniTable));
+}
+
+function getFilteredShipments(){
+  const stato = document.getElementById("filter-stato-spedizione").value;
+  const vettore = document.getElementById("filter-vettore-spedizione").value;
+  const mandante = document.getElementById("filter-mandante-spedizione").value;
+  return SHIPMENTS.filter(s =>
+    (!stato || s.stato===stato) &&
+    (!vettore || s.vettore===vettore) &&
+    (!mandante || s.mandante===mandante)
+  );
+}
+
+function renderSpedizioniTable(){
+  const list = getFilteredShipments();
+  const tbody = document.getElementById("tbody-spedizioni");
+  tbody.innerHTML = list.map(s=>{
+    const compat = COMPATIBILITA_VETTORE[s.vettore] || [];
+    return `
+    <tr data-id="${s.id}" class="${selectedShipments.has(s.id) ? 'row-selected':''} ${!s.capValida ? 'row-warning':''}">
+      <td class="col-check"><input type="checkbox" class="row-check" data-id="${s.id}" ${selectedShipments.has(s.id)?'checked':''}></td>
+      <td class="id-cell">${s.id}</td>
+      <td>${s.mandante}</td>
+      <td>${s.destinatario}</td>
+      <td>${s.cap}</td>
+      <td>${s.localita} (${s.provincia})</td>
+      <td>${badgeForCapState(s.capValida)}</td>
+      <td>${s.telefonoValida ? `<span class="mono">${s.telefono}</span>` : `<span class="badge badge-warning">Nel campo note</span>`}</td>
+      <td>
+        <select class="cell-select vettore-select" data-id="${s.id}">
+          ${VETTORI.map(v=>`<option value="${v}" ${v===s.vettore?'selected':''}>${v}</option>`).join("")}
+        </select>
+      </td>
+      <td>
+        <select class="cell-select stato-select" data-id="${s.id}">
+          ${STATI_SPEDIZIONE.map(st=>`<option value="${st}" ${st===s.stato?'selected':''}>${st}</option>`).join("")}
+        </select>
+      </td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("tbl-count-note").textContent = `${list.length} spedizioni visualizzate su ${SHIPMENTS.length} totali · ${selectedShipments.size} selezionate.`;
+
+  tbody.querySelectorAll(".row-check").forEach(chk=>{
+    chk.addEventListener("change", ()=>{
+      if(chk.checked) selectedShipments.add(chk.dataset.id); else selectedShipments.delete(chk.dataset.id);
+      renderSpedizioniTable();
+    });
+  });
+  tbody.querySelectorAll(".vettore-select").forEach(sel=>{
+    sel.addEventListener("change", ()=>{
+      const ship = SHIPMENTS.find(s=>s.id===sel.dataset.id);
+      ship.vettore = sel.value;
+      const compat = COMPATIBILITA_VETTORE[sel.value] || [];
+      const incompat = ship.servizi.filter(sv=>!compat.includes(sv));
+      if(incompat.length){
+        showToast(`${ship.id}: "${incompat.join(', ')}" non supportato da ${sel.value}.`, "danger");
       }
-      card.appendChild(act);
-      col.appendChild(card);
-    });
-    if (tot > 6) col.appendChild(el('div', { class: 'tiny', style: 'text-align:center;padding:4px' }, `… e altre ${tot - 6} (vedi tabella con filtro stato)`));
-    root.appendChild(col);
-  });
-}
-
-/* ---- Dettaglio spedizione: contenuto condiviso modale/tab ---- */
-function buildShipDetail(r, variant) {
-  const wrap = el('div');
-
-  const head = el('div', { class: 'ship-head' });
-  head.innerHTML = `<div class="barcode" aria-hidden="true"></div>
-    <div><div class="ship-id">${r.id}</div><div class="ship-sub">${esc(r.mandante)} → ${esc(r.destinatario)}, ${esc(r.localita)} (${esc(r.provincia)})</div></div>
-    <span class="spacer"></span>
-    ${badgeStato(r.stato)}`;
-  if (variant === 'modal') {
-    head.appendChild(el('button', { class: 'btn btn-sm', style: 'background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff', onclick: () => { $('.modal-backdrop') && $('.modal-backdrop').remove(); openShipDetail(r.id, 'tab'); } }, 'Apri come tab ↗'));
-  }
-  wrap.appendChild(head);
-
-  const grid = el('div', { class: 'detail-grid' });
-  const colA = el('div'); const colB = el('div');
-
-  /* Anagrafica */
-  colA.appendChild(el('div', { class: 'detail-block' }, `
-    <h4>Anagrafica</h4>
-    <dl class="kv">
-      <dt>Mandante</dt><dd>${esc(r.mandante)}</dd>
-      <dt>Destinatario</dt><dd>${esc(r.destinatario)}</dd>
-      <dt>Indirizzo</dt><dd>${esc(r.indirizzo)}, <span class="mono">${esc(r.cap)}</span> ${esc(r.localita)} (${esc(r.provincia)})</dd>
-      <dt>Validazione CAP</dt><dd>${badgeCap(r.capValido)}</dd>
-      <dt>Telefono</dt><dd><span class="mono">${esc(r.telefono)}</span> ${badgeTel(r.telOk)}</dd>
-      <dt>Ingresso flusso</dt><dd><span class="mono">${r.dataIn}</span></dd>
-    </dl>`));
-
-  /* Stato e vettore */
-  const sv = el('div', { class: 'detail-block' });
-  sv.innerHTML = `<h4>Stato e vettore</h4>
-    <dl class="kv">
-      <dt>Stato corrente</dt><dd>${badgeStato(r.stato)}</dd>
-      <dt>Vettore</dt><dd>${r.vettore ? esc(r.vettore) + (vettoreByNome(r.vettore).tipo === 'proprio' ? ' ' + badge('linea propria', 'brand') : ' ' + badge('corriere terzo', 'info')) : badge('non assegnato', 'warn')}</dd>
-      <dt>Servizi accessori</dt><dd>${r.servizi.length ? r.servizi.map(s => `<span class="tag ${servizioCompatibile(s, r.vettore) ? '' : 'incompat'}" title="${servizioCompatibile(s, r.vettore) ? 'Compatibile con il vettore' : 'NON supportato dal vettore assegnato'}">${esc(s)}${servizioCompatibile(s, r.vettore) ? '' : ' ⚠'}</span>`).join('') : '<span class="muted">nessuno</span>'}</dd>
-    </dl>
-    <h4 style="margin-top:12px">Storico passaggi di stato</h4>`;
-  const ol = el('ul', { class: 'timeline' });
-  [...r.storico].reverse().forEach(h => {
-    ol.appendChild(el('li', { class: h.stato === 'Consegnata' ? 'done' : '' }, `
-      <div class="t-when">${h.data}</div>
-      <div class="t-what">${esc(h.stato)}${h.nota ? ` — <span class="muted small">${esc(h.nota)}</span>` : ''}</div>
-      <div class="t-where">Operatore: ${esc(h.operatore)}</div>`));
-  });
-  sv.appendChild(ol);
-  colA.appendChild(sv);
-
-  /* Documenti collegati */
-  colA.appendChild(el('div', { class: 'detail-block' }, `
-    <h4>Documenti collegati</h4>
-    <dl class="kv">
-      <dt>Lettera di vettura</dt><dd>${r.ldv ? `<button class="btn-link" onclick="openLdv(spedById('${r.id}'))"><span class="mono">${r.ldv}</span> — apri anteprima</button>` : '<span class="muted">non ancora generata</span>'}</dd>
-      <dt>Collo madre</dt><dd>${r.colloMadre ? `<span class="mono">${r.colloMadre}</span> — <button class="btn-link" onclick="gotoColli()">vai alla vista ad albero</button>` : '<span class="muted">spedizione singola</span>'}</dd>
-    </dl>`));
-
-  /* Differenziale peso */
-  if (r.pesoReale !== r.pesoDich) {
-    const d = +(r.pesoReale - r.pesoDich).toFixed(1);
-    colA.appendChild(el('div', { class: 'detail-block' }, `
-      <h4>Differenziale peso/misure</h4>
-      <dl class="kv">
-        <dt>Peso dichiarato</dt><dd>${r.pesoDich.toFixed(1)} kg</dd>
-        <dt>Peso rilevato</dt><dd>${r.pesoReale.toFixed(1)} kg</dd>
-        <dt>Differenza</dt><dd><strong style="color:${d > 0 ? 'var(--err)' : 'var(--ok)'}">${d > 0 ? '+' : ''}${d.toFixed(1)} kg</strong></dd>
-        <dt>Impatto economico</dt><dd>${d > 0 ? fmtEur(d * 1.4) + ' di extra-costo stimato da riaddebitare' : 'nessun extra-costo'}</dd>
-        <dt>Dimensioni</dt><dd>${esc(r.dims)}</dd>
-      </dl>`));
-  }
-
-  /* Note operative */
-  const nb = el('div', { class: 'detail-block' });
-  nb.innerHTML = `<h4>Note operative</h4>`;
-  const list = el('div');
-  const renderNotes = () => {
-    list.innerHTML = r.note.length ? '' : '<p class="muted small">Nessuna nota. Aggiungine una qui sotto (salvata solo in memoria per la sessione).</p>';
-    [...r.note].reverse().forEach(n => list.appendChild(el('div', { class: 'note-item' }, `<div class="n-meta">${n.data} · ${esc(n.autore)}</div>${esc(n.testo)}`)));
-  };
-  renderNotes();
-  nb.appendChild(list);
-  const nf = el('div', { class: 'note-form' });
-  const ta = el('textarea', { placeholder: 'Aggiungi una nota operativa…' });
-  nf.appendChild(ta);
-  nf.appendChild(el('button', { class: 'btn btn-primary', onclick: () => {
-    if (!ta.value.trim()) return;
-    r.note.push({ testo: ta.value.trim(), data: nowStr(), autore: 'M. Bruzzone' });
-    ta.value = ''; renderNotes();
-    toast('Nota aggiunta (sessione corrente)', 'ok');
-  } }, 'Salva nota'));
-  nb.appendChild(nf);
-  colB.appendChild(nb);
-
-  /* Cronologia tracking con eventi interni */
-  const tk = el('div', { class: 'detail-block' });
-  tk.innerHTML = `<h4>Cronologia eventi di tracking</h4>
-    <p class="tiny">Gli eventi evidenziati in giallo sono <strong>interni</strong> (operatore, note di magazzino) e non compaiono nel tracking pubblico del cliente finale.</p>`;
-  const tl = el('ul', { class: 'timeline' });
-  [...r.tracking].reverse().forEach(t => {
-    tl.appendChild(el('li', { class: (t.evento.includes('Consegnata') ? 'done ' : '') + (t.interno ? 'internal' : '') }, `
-      <div class="t-when">${t.data}</div>
-      <div class="t-what">${esc(t.evento)}</div>
-      <div class="t-where">${esc(t.luogo)}</div>
-      ${t.interno ? `<div class="t-int">🔒 interno · ${esc(t.operatore)}${t.notaInterna ? ' — ' + esc(t.notaInterna) : ''}</div>` : `<div class="tiny">op. ${esc(t.operatore)}</div>`}`));
-  });
-  tk.appendChild(tl);
-  colB.appendChild(tk);
-
-  grid.appendChild(colA); grid.appendChild(colB);
-  wrap.appendChild(grid);
-  return wrap;
-}
-
-function openShipDetail(id, variant = 'modal') {
-  const r = spedById(id);
-  if (!r) return;
-  if (variant === 'modal') {
-    openModal({ title: `Dettaglio spedizione — consultazione rapida`, body: buildShipDetail(r, 'modal'), size: 'xwide', actions: [{ label: 'Chiudi' }] });
-  } else {
-    // vista/tab dedicata: sostituisce temporaneamente l'elenco spedizioni
-    showView('spedizioni');
-    $('#sped-list-wrap').style.display = 'none';
-    $('#colli-wrap').style.display = 'none';
-    $('#diff-wrap').style.display = 'none';
-    const wrap = $('#sped-detail-wrap');
-    wrap.style.display = '';
-    wrap.innerHTML = '';
-    const bar = el('div', { class: 'view-header' });
-    bar.appendChild(el('button', { class: 'btn', onclick: closeShipTab }, '← Torna all\'elenco'));
-    bar.appendChild(el('h1', {}, 'Dettaglio spedizione'));
-    bar.appendChild(el('span', { class: 'sub' }, 'vista a tab dedicata per lavorazione approfondita'));
-    wrap.appendChild(bar);
-    wrap.appendChild(buildShipDetail(r, 'tab'));
-  }
-}
-function closeShipTab() {
-  $('#sped-detail-wrap').style.display = 'none';
-  $('#sped-detail-wrap').innerHTML = '';
-  $('#sped-list-wrap').style.display = '';
-  dtSpedizioni.refresh(); renderKanban();
-}
-
-/* ---- Colli madre ---- */
-function gotoColli() {
-  $('.modal-backdrop') && $('.modal-backdrop').remove();
-  showView('spedizioni');
-  $('#sped-list-wrap').style.display = 'none';
-  $('#sped-detail-wrap').style.display = 'none';
-  $('#diff-wrap').style.display = 'none';
-  $('#colli-wrap').style.display = '';
-  renderColli();
-}
-function renderColli() {
-  const root = $('#colli-tree'); root.innerHTML = '';
-  COLLI_MADRE.forEach(cm => {
-    const [aggr, cls] = statoAggregato(cm);
-    const li = el('li', { class: 'tree-parent open' });
-    const head = el('div', { class: 'tp-head', onclick: () => li.classList.toggle('open') });
-    head.innerHTML = `<span class="caret">▶</span>
-      <span class="mono" style="font-weight:600;color:var(--brand)">${cm.id}</span>
-      <strong>${esc(cm.descr)}</strong>
-      ${badge(aggr, cls)}
-      <span class="tiny">${cm.figli.length} sotto-colli</span>`;
-    li.appendChild(head);
-    const body = el('div', { class: 'tp-body' });
-    cm.figli.forEach(fid => {
-      const s = spedById(fid);
-      const row = el('div', { class: 'tc-row' });
-      row.innerHTML = `<span class="mono" style="color:var(--brand)">${s.id}</span>
-        <span>${esc(s.destinatario)} · ${esc(s.localita)}</span>
-        ${badgeStato(s.stato)}
-        <span class="tiny">${s.vettore ? esc(s.vettore) : 'vettore da assegnare'}</span>
-        <span class="grow"></span>`;
-      row.appendChild(el('button', { class: 'btn btn-sm', onclick: () => openShipDetail(s.id, 'modal') }, 'Dettaglio'));
-      const sep = el('button', { class: 'btn btn-sm', title: 'Spedisci separatamente con mezzo/data diversi', onclick: () => {
-        const b = el('div');
-        b.innerHTML = `<p class="small">Il sotto-collo <span class="mono">${s.id}</span> verrà scorporato dal bancale e spedito separatamente.</p>
-          <div class="form-row"><label>Vettore</label><select id="sep-v">${VETTORI.map(v => `<option>${v.nome}</option>`).join('')}</select></div>
-          <div class="form-row"><label>Data di partenza</label><input type="text" id="sep-d" value="2026-07-22"></div>`;
-        openModal({ title: 'Spedisci sotto-collo separatamente', body: b, actions: [
-          { label: 'Annulla' },
-          { label: 'Conferma', cls: 'btn-primary', onClick: bd => {
-              s.vettore = $('#sep-v', bd).value; s.stato = 'Pronta per etichettatura';
-              s.storico.push({ stato: 'Pronta per etichettatura', data: nowStr(), operatore: 'M. Bruzzone', nota: `Scorporato dal collo madre ${cm.id}, partenza ${$('#sep-d', bd).value}` });
-              renderColli(); dtSpedizioni.refresh();
-              toast(`${s.id} pronto per spedizione separata con ${s.vettore}`, 'ok');
-            } }
-        ] });
-      } }, 'Spedisci separato');
-      row.appendChild(sep);
-      body.appendChild(row);
-    });
-    li.appendChild(body);
-    root.appendChild(li);
-  });
-}
-
-/* ---- Differenziale peso/misure (tabella dedicata) ---- */
-function gotoDiff() {
-  showView('spedizioni');
-  $('#sped-list-wrap').style.display = 'none';
-  $('#sped-detail-wrap').style.display = 'none';
-  $('#colli-wrap').style.display = 'none';
-  $('#diff-wrap').style.display = '';
-  renderDataTable({
-    mount: '#dt-diff', title: 'Confronto dichiarato vs rilevato', noun: 'righe',
-    data: () => DIFFERENZIALI, rowKey: r => r.id, selectable: true, pageSize: 10,
-    onRowClick: r => openShipDetail(r.id, 'modal'),
-    columns: [
-      { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand)">${r.id}</span>` },
-      { key: 'mandante', label: 'Mandante', ftype: 'enum' },
-      { key: 'vettore', label: 'Vettore', ftype: 'enum' },
-      { key: 'pesoDich', label: 'Peso dich. (kg)', ftype: 'number', numeric: true, render: r => r.pesoDich.toFixed(1) },
-      { key: 'pesoReale', label: 'Peso reale (kg)', ftype: 'number', numeric: true, render: r => r.pesoReale.toFixed(1) },
-      { key: 'diff', label: 'Differenziale', ftype: 'number', numeric: true, render: r => `<strong style="color:${r.diff > 0 ? 'var(--err)' : 'var(--ok)'}">${r.diff > 0 ? '+' : ''}${r.diff.toFixed(1)}</strong>` },
-      { key: 'impatto', label: 'Impatto economico', ftype: 'number', numeric: true, render: r => r.impatto > 0 ? `<strong>${fmtEur(r.impatto)}</strong>` : '—' }
-    ],
-    bulkActions: [
-      { label: 'Riaddebita differenziale al mandante', cls: 'btn-primary', run: (sel, api) => {
-          const rows = sel.rows.filter(r => r.impatto > 0);
-          confirmBulk({ azione: 'Riaddebito differenziale peso', count: rows.length, mode: sel.mode,
-            dettagli: `Totale da riaddebitare: <strong>${fmtEur(rows.reduce((a, r) => a + r.impatto, 0))}</strong>`,
-            onConfirm: () => { api.clearSelection(); api.refresh(); toast(`Riaddebito generato per ${rows.length} spedizioni (simulato)`, 'ok'); } });
-        } }
-    ]
-  });
-}
-
-/* ============================================================
-   10. SEZIONE LISTINI E TARIFFE (tre livelli)
-   ============================================================ */
-let lvVettoreCorrente = 'Corriere A';
-
-function initListini() {
-  // tab principali
-  $$('#listini-tabs .tab-btn').forEach(b => b.addEventListener('click', () => {
-    $$('#listini-tabs .tab-btn').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    $$('#view-listini .tab-pane').forEach(p => p.classList.remove('active'));
-    $('#pane-' + b.dataset.tab).classList.add('active');
-  }));
-
-  // sotto-tab per vettore (listini vettori terzi)
-  const vt = $('#lv-vettori-tabs');
-  Object.keys(LISTINI_VETTORE).forEach((nome, i) => {
-    const b = el('button', { class: 'tab-btn' + (i === 0 ? ' active' : ''), onclick: () => {
-      $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      lvVettoreCorrente = nome;
-      renderListinoVettore();
-    } }, esc(nome));
-    vt.appendChild(b);
-  });
-  renderListinoVettore();
-  renderListinoCosto();
-  renderListinoVendita();
-  initStoricita();
-}
-
-function renderListinoVettore() {
-  const lv = LISTINI_VETTORE[lvVettoreCorrente];
-  $('#lv-meta').innerHTML = `
-    <span>📄 <strong>${esc(lv.nota)}</strong></span>
-    <span>Versione: <span class="mono">${lv.versione}</span></span>
-    <span class="tiny">Dato di partenza esterno, non negoziabile da CT Solution: base per i listini di costo interni.</span>`;
-  renderDataTable({
-    mount: '#dt-listino-vettore', title: `Listino ${lvVettoreCorrente}`, noun: 'righe di listino',
-    data: () => lv.rows, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 10,
-    columns: [
-      { key: 'scaglione', label: 'Scaglione peso', ftype: 'enum' },
-      { key: 'zona', label: 'Zona', ftype: 'enum' },
-      { key: 'prezzo', label: 'Prezzo', ftype: 'number', numeric: true, render: r => fmtEur(r.prezzo) },
-      { key: 'fuel', label: 'Fuel surcharge', ftype: 'number', numeric: true, render: r => r.fuel.toFixed(1) + ' %' },
-      { key: 'validita', label: 'Validità', ftype: 'enum', render: r => `<span class="mono tiny">${esc(r.validita)}</span>` }
-    ]
-  });
-}
-
-function renderListinoCosto() {
-  $('#lc-meta').innerHTML = `<span class="tiny">I listini di costo derivano dal listino del vettore terzo (con oneri interni) oppure sono <strong>calcolati</strong> per le linee proprie (padroncini). Cliccando una riga derivata si vede l'origine dell'import.</span>`;
-  renderDataTable({
-    mount: '#dt-listino-costo', title: 'Listini di costo interni CT Solution', noun: 'righe di listino',
-    data: () => LISTINI_COSTO, rowKey: r => r.vettore + '|' + r.scaglione, pageSize: 10, selectable: true,
-    onRowClick: r => {
-      openModal({ title: 'Origine listino di costo', body: `
-        <dl class="confirm-summary">
-          <dt>Vettore</dt><dd>${esc(r.vettore)}</dd>
-          <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
-          <dt>Costo interno</dt><dd><strong>${fmtEur(r.costo)}</strong></dd>
-          ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)} <span class="tiny">(+3% oneri interni)</span></dd>` : ''}
-          <dt>Origine</dt><dd>${esc(r.origine)}</dd>
-        </dl>`, actions: [{ label: 'Chiudi' }] });
-    },
-    columns: [
-      { key: 'vettore', label: 'Vettore', ftype: 'enum' },
-      { key: 'tipo', label: 'Tipo', ftype: 'enum', render: r => badge(r.tipo, r.tipo.startsWith('Derivato') ? 'info' : 'brand') },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
-      { key: 'origine', label: 'Origine / import', ftype: 'text', render: r => `<span class="tiny">${esc(r.origine)}</span>` }
-    ],
-    bulkActions: [
-      { label: 'Duplica listino…', cls: 'btn-primary', run: (sel, api) => openDuplicaListino(sel, api) }
-    ]
-  });
-}
-
-function openDuplicaListino(sel, api) {
-  const b = el('div');
-  b.innerHTML = `<p class="small muted">Crea un nuovo listino a partire dalle <strong>${sel.rows.length || 'righe del filtro corrente (' + api.getFilteredRows().length + ')'}</strong> righe selezionate. Disponibile anche a partire da un listino di costo derivato da vettore terzo.</p>
-    <div class="form-row"><label>Metodo</label>
-      <select id="dup-m">
-        <option value="perc">Ricarico percentuale sul costo</option>
-        <option value="abs">Sovrascrittura assoluta (prezzo fisso)</option>
-      </select></div>
-    <div class="form-row"><label>Valore</label><input type="text" id="dup-v" value="18" placeholder="es. 18 (%) oppure 9.90 (€)"></div>
-    <div class="form-row"><label>Destinazione</label><select id="dup-d">${MANDANTI.map(m => `<option>${m}</option>`).join('')}</select></div>`;
-  openModal({ title: 'Duplica listino', body: b, actions: [
-    { label: 'Annulla' },
-    { label: 'Crea listino', cls: 'btn-primary', onClick: bd => {
-        const rows = sel.rows.length ? sel.rows : api.getFilteredRows();
-        const m = $('#dup-m', bd).value, v = parseFloat($('#dup-v', bd).value) || 0, dest = $('#dup-d', bd).value;
-        rows.forEach(r => {
-          const vendita = m === 'perc' ? +(r.costo * (1 + v / 100)).toFixed(2) : v;
-          LISTINI_VENDITA.push({ mandante: dest, vettoreRif: r.vettore, scaglione: r.scaglione, zona: r.zona, costo: r.costo, costoVettore: r.costoVettore, vendita, margine: +(vendita - r.costo).toFixed(2) });
-        });
-        renderListinoVendita();
-        toast(`Listino duplicato per ${dest}: ${rows.length} righe (${m === 'perc' ? '+' + v + '%' : fmtEur(v) + ' fisso'})`, 'ok');
-      } }
-  ] });
-}
-
-function renderListinoVendita() {
-  renderDataTable({
-    mount: '#dt-listino-vendita', title: 'Listini di vendita per mandante', noun: 'righe di listino',
-    data: () => LISTINI_VENDITA, rowKey: r => r.mandante + '|' + r.vettoreRif + '|' + r.scaglione + '|' + r.vendita, pageSize: 10,
-    rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
-    columns: [
-      { key: 'mandante', label: 'Mandante', ftype: 'enum' },
-      { key: 'vettoreRif', label: 'Vettore di rif.', ftype: 'enum' },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
-      { key: 'vendita', label: 'Prezzo di vendita', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.vendita)}</strong>` },
-      { key: 'margine', label: 'Margine', ftype: 'number', numeric: true, render: r => `<span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span>` },
-      { key: 'alert', label: 'Controllo', sortable: false,
-        render: r => {
-          if (r.costoVettore && r.vendita < r.costoVettore)
-            return `<span class="badge err" title="Il prezzo di vendita è inferiore perfino al listino del vettore terzo di origine">⛔ vendita sotto il costo del VETTORE (${fmtEur(r.costoVettore)}), non solo sotto il listino interno</span>`;
-          if (r.vendita < r.costo)
-            return `<span class="badge warn">vendita sotto il costo interno</span>`;
-          return `<span class="badge ok">ok</span>`;
-        } }
-    ]
-  });
-}
-
-function initStoricita() {
-  const sel = $('#stor-cliente');
-  sel.innerHTML = MANDANTI.map(m => `<option>${m}</option>`).join('');
-  const render = () => {
-    const rows = STORICO_LISTINI[sel.value];
-    $('#stor-timeline').innerHTML = rows.map(r => `
-      <li>
-        <span class="h-when">${esc(r.periodo)}</span>
-        <span>
-          <strong>${esc(r.label)}</strong><br>
-          ${r.stato === 'attivo' ? badge('in vigore', 'ok') : r.stato === 'futuro' ? badge('futuro — coesiste con l\'attuale', 'accent') : badge('archiviato', '')}
-        </span>
-      </li>`).join('');
-  };
-  sel.addEventListener('change', render);
-  render();
-}
-
-/* ============================================================
-   11. SEZIONE FLUSSI IN INGRESSO
-   ============================================================ */
-let dtFlussi = null;
-function initFlussi() {
-  $('#flussi-counter').textContent = `${FLUSSI_TOTALI} flussi configurati · ${FLUSSI.length} mostrati come esempio`;
-  dtFlussi = renderDataTable({
-    mount: '#dt-flussi', title: 'Clienti e microservizi di import', noun: 'flussi',
-    data: () => FLUSSI, rowKey: r => r.cliente, pageSize: 10, selectable: true,
-    onRowClick: r => renderFlussoDetail(r),
-    columns: [
-      { key: 'cliente', label: 'Nome cliente', ftype: 'text', render: r => `<strong>${esc(r.cliente)}</strong>` },
-      { key: 'tipo', label: 'Tipo flusso', ftype: 'enum', render: r => badge(r.tipo, 'brand') },
-      { key: 'stato', label: 'Stato ultimo import', ftype: 'enum', statusOrder: ['Errore', 'In coda', 'OK'],
-        render: r => badge(r.stato, r.stato === 'OK' ? 'ok' : r.stato === 'Errore' ? 'err' : 'warn') },
-      { key: 'ultimo', label: 'Data/ora ultimo import', ftype: 'date', render: r => `<span class="mono tiny">${r.ultimo}</span>` },
-      { key: 'micro', label: 'Tipo microservizio', ftype: 'enum', render: r => badge(r.micro, r.micro === 'Istanza dedicata' ? 'accent' : 'info') }
-    ],
-    rowActions: (r, api) => el('button', { class: 'btn btn-sm btn-primary', onclick: () => {
-      r.stato = r.stato === 'In coda' ? (rnd() > 0.3 ? 'OK' : 'Errore') : (rnd() > 0.15 ? 'OK' : 'Errore');
-      r.ultimo = nowStr();
-      api.refresh(); renderFlussoDetail(r);
-      toast(`Import simulato per ${r.cliente}: ${r.stato}`, r.stato === 'OK' ? 'ok' : 'err');
-    } }, 'Simula import'),
-    bulkActions: [
-      { label: 'Rilancia import (selezione/filtro)', cls: 'btn-primary', run: (sel, api) => {
-          confirmBulk({ azione: 'Rilancio import massivo', count: sel.rows.length, mode: sel.mode,
-            onConfirm: () => { sel.rows.forEach(r => { r.stato = rnd() > 0.2 ? 'OK' : 'Errore'; r.ultimo = nowStr(); }); api.clearSelection(); api.refresh(); toast(`${sel.rows.length} import rilanciati`, 'ok'); } });
-        } }
-    ]
-  });
-}
-function renderFlussoDetail(r) {
-  $('#flusso-detail').innerHTML = `
-    <h3>Dettaglio cliente — ${esc(r.cliente)}</h3>
-    <dl class="kv" style="grid-template-columns:120px 1fr;margin-bottom:10px">
-      <dt>Tipo flusso</dt><dd>${badge(r.tipo, 'brand')}</dd>
-      <dt>Microservizio</dt><dd>${badge(r.micro, r.micro === 'Istanza dedicata' ? 'accent' : 'info')}</dd>
-      <dt>Ultimo import</dt><dd><span class="mono tiny">${r.ultimo}</span> ${badge(r.stato, r.stato === 'OK' ? 'ok' : r.stato === 'Errore' ? 'err' : 'warn')}</dd>
-    </dl>
-    <h4 style="font-family:var(--font-display);font-size:12.5px;text-transform:uppercase;color:var(--ink-soft);margin:10px 0 6px">Regole custom applicate</h4>
-    ${r.regole.map(([cond, az]) => `<div class="rule-item"><span>${esc(cond)}</span><span class="arrow">→</span><strong>${esc(az)}</strong></div>`).join('')}
-    ${r.stato === 'Errore' ? '<div class="err-box" style="margin-top:10px">Ultimo file scartato: 3 righe con CAP mancante. Scarica il log errori (simulato) o rilancia l\'import.</div>' : ''}`;
-}
-
-/* ============================================================
-   12. SEZIONE GIACENZE
-   ============================================================ */
-let dtGiacenze = null;
-function esitoGiacenza(sel, api, esito) {
-  const rows = sel.rows.filter(r => r.esito === 'Aperta');
-  confirmBulk({
-    azione: `Segna come «${esito}»`, count: rows.length, mode: sel.mode,
-    dettagli: sel.mode === 'filter' ? 'Esempio d\'uso: filtra «giorni ≥ 5» e applica «Reso al mittente» a tutte le giacenze aperte da più di 5 giorni.' : '',
-    onConfirm: () => {
-      rows.forEach(r => r.esito = esito);
-      api.clearSelection(); api.refresh();
-      toast(`${rows.length} giacenze → ${esito}`, 'ok');
-    }
-  });
-}
-function initGiacenze() {
-  const azioni = ['Nuovo tentativo di consegna', 'Reso al mittente', 'Smaltimento'];
-  dtGiacenze = renderDataTable({
-    mount: '#dt-giacenze', title: 'Giacenze aperte e lavorate', noun: 'giacenze',
-    data: () => GIACENZE, rowKey: r => r.id, pageSize: 10, selectable: true,
-    onRowClick: r => openShipDetail(r.ref.id, 'modal'),
-    columns: [
-      { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand)">${r.id}</span>` },
-      { key: 'mandante', label: 'Mandante', ftype: 'enum' },
-      { key: 'destinatario', label: 'Destinatario', ftype: 'text' },
-      { key: 'localita', label: 'Località', ftype: 'text' },
-      { key: 'motivo', label: 'Motivo giacenza', ftype: 'enum', render: r => badge(r.motivo, 'warn') },
-      { key: 'giorni', label: 'Giorni aperta', ftype: 'number', numeric: true, render: r => r.giorni >= 5 ? `<strong style="color:var(--err)">${r.giorni}</strong>` : r.giorni },
-      { key: 'esito', label: 'Esito', ftype: 'enum', statusOrder: ['Aperta', 'Nuovo tentativo di consegna', 'Reso al mittente', 'Smaltimento'],
-        render: r => badge(r.esito, r.esito === 'Aperta' ? 'err' : r.esito === 'Nuovo tentativo di consegna' ? 'info' : r.esito === 'Reso al mittente' ? 'warn' : '') }
-    ],
-    rowActions: (r, api) => {
-      const sel = el('select', { class: 'inline-select' });
-      sel.appendChild(el('option', { value: '' }, 'Azione…'));
-      azioni.forEach(a => sel.appendChild(el('option', {}, a)));
-      sel.addEventListener('change', () => {
-        if (!sel.value) return;
-        r.esito = sel.value; api.refresh();
-        toast(`${r.id}: ${sel.value}`, 'ok');
-      });
-      return sel;
-    },
-    bulkActions: azioni.map(a => ({
-      label: a + ' (selezione/filtro)', cls: a === 'Reso al mittente' ? 'btn-primary' : '',
-      run: (sel, api) => esitoGiacenza(sel, api, a)
-    }))
-  });
-}
-
-/* ============================================================
-   13. SEZIONE CONNETTORE E-COMMERCE
-   ============================================================ */
-function initEcommerce() {
-  const k = $('#ecom-kpis');
-  const push = ORDINI_ECOM.filter(o => o.marketplace === 'Vinted').length;
-  const err = ORDINI_ECOM.filter(o => o.statoInt.includes('Errore')).length;
-  k.innerHTML = `
-    <div class="kpi"><div class="kpi-label">Ordini collegati</div><div class="kpi-value">${ORDINI_ECOM.length}</div><div class="kpi-note">ultimi 7 giorni</div></div>
-    <div class="kpi ok"><div class="kpi-label">Marketplace attivi</div><div class="kpi-value">4</div><div class="kpi-note">Amazon · Shopify · eBay · Vinted</div></div>
-    <div class="kpi warn"><div class="kpi-label">Ordini via push (Vinted)</div><div class="kpi-value">${push}</div><div class="kpi-note">flusso invertito, tempo reale</div></div>
-    <div class="kpi err"><div class="kpi-label">Errori integrazione</div><div class="kpi-value">${err}</div><div class="kpi-note">da rilanciare</div></div>`;
-
-  renderDataTable({
-    mount: '#dt-ecom', title: 'Ordini marketplace', noun: 'ordini',
-    data: () => ORDINI_ECOM, rowKey: r => r.ordine, pageSize: 10, selectable: true,
-    columns: [
-      { key: 'ordine', label: 'Ordine', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand)">${r.ordine}</span>` },
-      { key: 'marketplace', label: 'Marketplace', ftype: 'enum',
-        render: r => badge(r.marketplace, 'brand') + (r.marketplace === 'Vinted' ? ' ' + badge('push', 'accent') : '') },
-      { key: 'cliente', label: 'Cliente finale', ftype: 'text' },
-      { key: 'data', label: 'Data ordine', ftype: 'date', render: r => `<span class="mono tiny">${r.data}</span>` },
-      { key: 'valore', label: 'Valore', ftype: 'number', numeric: true, render: r => fmtEur(r.valore) },
-      { key: 'statoInt', label: 'Stato integrazione', ftype: 'enum', statusOrder: ['Errore API', 'Errore push', 'In coda', 'Ricevuto (push)', 'Sincronizzato'],
-        render: r => badge(r.statoInt, r.statoInt.includes('Errore') ? 'err' : r.statoInt === 'In coda' ? 'warn' : 'ok') },
-      { key: 'spedizione', label: 'Spedizione', ftype: 'enum', filterValue: r => r.spedizione ? 'Collegata' : 'Da creare',
-        render: r => r.spedizione ? `<button class="btn-link" onclick="openShipDetail('${r.spedizione}','modal')"><span class="mono">${r.spedizione}</span></button>` : badge('da creare', 'warn') },
-      { key: 'giacenza', label: 'Giacenza', ftype: 'enum', filterValue: r => r.giacenza ? 'Sì' : 'No', sortValue: r => r.giacenza ? 1 : 0,
-        render: r => r.giacenza ? badge('in giacenza', 'err') : '—' }
-    ],
-    bulkActions: [
-      { label: 'Crea spedizioni dagli ordini', cls: 'btn-primary', run: (sel, api) => {
-          const rows = sel.rows.filter(r => !r.spedizione);
-          confirmBulk({ azione: 'Crea spedizioni dagli ordini marketplace', count: rows.length, mode: sel.mode,
-            onConfirm: () => { rows.forEach(r => r.spedizione = pick(SPEDIZIONI).id); api.clearSelection(); api.refresh(); toast(`${rows.length} spedizioni create (mock)`, 'ok'); } });
-        } },
-      { label: 'Rilancia sincronizzazione', run: (sel, api) => {
-          const rows = sel.rows.filter(r => r.statoInt.includes('Errore') || r.statoInt === 'In coda');
-          confirmBulk({ azione: 'Rilancio sincronizzazione marketplace', count: rows.length, mode: sel.mode,
-            onConfirm: () => { rows.forEach(r => r.statoInt = r.marketplace === 'Vinted' ? 'Ricevuto (push)' : 'Sincronizzato'); api.clearSelection(); api.refresh(); toast('Sincronizzazione completata', 'ok'); } });
-        } }
-    ]
-  });
-}
-
-/* ============================================================
-   14. SEZIONE UTENTI E RUOLI
-   ============================================================ */
-function initUtenti() {
-  renderDataTable({
-    mount: '#dt-utenti', title: 'Utenti della piattaforma', noun: 'utenti',
-    data: () => UTENTI, rowKey: r => r.email, pageSize: 10, selectable: true,
-    onRowClick: r => renderPermPanel(r),
-    columns: [
-      { key: 'nome', label: 'Nome', ftype: 'text', render: r => `<strong>${esc(r.nome)}</strong><br><span class="tiny mono">${esc(r.email)}</span>` },
-      { key: 'livello', label: 'Livello di accesso', ftype: 'enum', statusOrder: LIVELLI_UTENTE,
-        render: r => badge(r.livello, { 'Piattaforma': 'err', 'Back office': 'brand', 'Mandante/Sottocontratto': 'info', 'Cliente finale': '' }[r.livello]) },
-      { key: 'mandante', label: 'Mandante/Sottocontratto', ftype: 'enum' },
-      { key: 'ultimoAccesso', label: 'Ultimo accesso', ftype: 'date', render: r => `<span class="mono tiny">${r.ultimoAccesso}</span>` },
-      { key: 'stato', label: 'Stato', ftype: 'enum', render: r => badge(r.stato, r.stato === 'Attivo' ? 'ok' : 'warn') }
-    ],
-    bulkActions: [
-      { label: 'Sospendi utenti (selezione/filtro)', run: (sel, api) => {
-          confirmBulk({ azione: 'Sospensione utenti', count: sel.rows.length, mode: sel.mode,
-            onConfirm: () => { sel.rows.forEach(r => r.stato = 'Sospeso'); api.clearSelection(); api.refresh(); toast(`${sel.rows.length} utenti sospesi`, 'ok'); } });
-        } },
-      { label: 'Riattiva utenti', run: (sel, api) => {
-          confirmBulk({ azione: 'Riattivazione utenti', count: sel.rows.length, mode: sel.mode,
-            onConfirm: () => { sel.rows.forEach(r => r.stato = 'Attivo'); api.clearSelection(); api.refresh(); toast(`${sel.rows.length} utenti riattivati`, 'ok'); } });
-        } }
-    ]
-  });
-}
-function renderPermPanel(u) {
-  // permessi tipici per livello (mock)
-  const preset = {
-    'Piattaforma':              { lettura: MODULI, scrittura: MODULI, massive: MODULI, config: MODULI },
-    'Back office':              { lettura: MODULI, scrittura: ['Spedizioni', 'Giacenze', 'Flussi', 'E-commerce'], massive: ['Spedizioni', 'Giacenze'], config: [] },
-    'Mandante/Sottocontratto':  { lettura: ['Spedizioni', 'Listini', 'Giacenze'], scrittura: [], massive: [], config: [] },
-    'Cliente finale':           { lettura: ['Spedizioni'], scrittura: [], massive: [], config: [] }
-  }[u.livello];
-  const cols = ['Lettura', 'Scrittura', 'Massive', 'Config'];
-  let grid = `<div>Modulo</div>` + cols.map(c => `<div>${c}</div>`).join('');
-  MODULI.forEach(m => {
-    grid += `<div>${m}</div>`;
-    [preset.lettura, preset.scrittura, preset.massive, preset.config].forEach(set => {
-      grid += `<div><input type="checkbox" ${set.includes(m) ? 'checked' : ''} onchange="toast('Permesso aggiornato (simulato) per ${esc(u.nome)}')"></div>`;
+      renderSpedizioniTable();
     });
   });
-  $('#perm-panel').innerHTML = `
-    <h3>Permessi — ${esc(u.nome)}</h3>
-    <p class="small">${badge(u.livello, 'brand')} ${u.mandante !== '—' ? `<span class="tiny">vincolato a: <strong>${esc(u.mandante)}</strong></span>` : ''}</p>
-    <div class="perm-grid">${grid}</div>
-    <p class="tiny" style="margin-top:8px">I livelli inferiori (mandanti e clienti finali) vedono solo le proprie spedizioni e, nel tracking, la sola vista pubblica senza eventi interni.</p>`;
+  tbody.querySelectorAll(".stato-select").forEach(sel=>{
+    sel.addEventListener("change", ()=>{
+      const ship = SHIPMENTS.find(s=>s.id===sel.dataset.id);
+      ship.stato = sel.value;
+      renderSpedizioniTable();
+      renderKanban();
+    });
+  });
 }
 
-/* ============================================================
-   15. TRACKING PUBBLICO
-   ============================================================ */
-function initTracking() {
-  const conLdv = SPEDIZIONI.filter(s => s.ldv).slice(0, 3);
-  const sg = $('#track-suggest');
-  conLdv.forEach(s => sg.appendChild(el('button', { onclick: () => { $('#track-input').value = s.ldv; doTrack(); } }, s.ldv)));
-  $('#track-btn').addEventListener('click', doTrack);
-  $('#track-input').addEventListener('keydown', e => { if (e.key === 'Enter') doTrack(); });
+function setupSpedizioniToolbar(){
+  document.getElementById("check-all-head").addEventListener("change",(e)=>{
+    const list = getFilteredShipments();
+    if(e.target.checked) list.forEach(s=>selectedShipments.add(s.id));
+    else list.forEach(s=>selectedShipments.delete(s.id));
+    renderSpedizioniTable();
+  });
+
+  document.getElementById("btn-select-all").addEventListener("click", ()=>{
+    getFilteredShipments().forEach(s=>selectedShipments.add(s.id));
+    renderSpedizioniTable();
+    showToast("Tutte le spedizioni filtrate sono state selezionate.");
+  });
+
+  document.getElementById("btn-fix-cap").addEventListener("click", ()=>{
+    let count = 0;
+    SHIPMENTS.forEach(s=>{
+      if(!s.capValida){
+        const city = randFrom(CITTA);
+        s.cap = city.cap; s.localita = city.loc; s.provincia = city.prov; s.capValida = true;
+        count++;
+      }
+    });
+    renderSpedizioniTable();
+    showToast(`Operazione massiva completata: ${count} CAP corretti.`, "success");
+  });
+
+  document.getElementById("btn-normalize-phone").addEventListener("click", ()=>{
+    let count = 0;
+    SHIPMENTS.forEach(s=>{
+      if(!s.telefonoValida){
+        s.telefono = "+39 333 " + pad(Math.floor(Math.random()*10000000),7);
+        s.telefonoValida = true;
+        count++;
+      }
+    });
+    renderSpedizioniTable();
+    showToast(`Numeri normalizzati per ${count} spedizioni: spostati dal campo note e formattati con +39.`, "success");
+  });
+
+  document.getElementById("btn-apply-service").addEventListener("click", openApplyServiceModal);
+  document.getElementById("btn-generate-waybill").addEventListener("click", openWaybillModal);
 }
-function doTrack() {
-  const code = $('#track-input').value.trim().toUpperCase();
-  const s = SPEDIZIONI.find(x => x.ldv === code || x.id === code);
-  const out = $('#track-result');
-  if (!s) {
-    out.innerHTML = `<div class="card"><div class="err-box">Nessuna spedizione trovata con il codice <span class="mono">${esc(code || '—')}</span>. Controlla il codice sulla lettera di vettura e riprova.</div></div>`;
+
+function openApplyServiceModal(){
+  if(selectedShipments.size === 0){
+    showToast("Seleziona almeno una spedizione prima di applicare un servizio.", "danger");
     return;
   }
-  const pub = s.tracking.filter(t => !t.interno);
-  out.innerHTML = '';
-  const card = el('div', { class: 'card' });
-  card.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-      <h3 style="margin:0">Spedizione <span class="mono" style="color:var(--brand)">${s.ldv || s.id}</span></h3>
-      ${badgeStato(s.stato)}
-      <span class="spacer" style="flex:1"></span>
-      <span class="tiny">Vista <strong>pubblica</strong> (cliente finale): mostra meno campi e nessun evento interno.</span>
-    </div>
-    <dl class="kv" style="margin-bottom:12px">
-      <dt>Destinazione</dt><dd>${esc(s.localita)} (${esc(s.provincia)})</dd>
-      <dt>Ultimo evento</dt><dd>${esc(pub[pub.length - 1].evento)}</dd>
-    </dl>
-    <ul class="timeline">${[...pub].reverse().map(t => `
-      <li class="${t.evento.includes('Consegnata') ? 'done' : ''}">
-        <div class="t-when">${t.data}</div>
-        <div class="t-what">${esc(t.evento)}</div>
-        <div class="t-where">${esc(t.luogo)}</div>
-      </li>`).join('')}
-    </ul>`;
-  const bar = el('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' });
-  bar.appendChild(el('button', { class: 'btn btn-primary', onclick: () => openShipDetail(s.id, 'modal') }, 'Apri dettaglio completo (utente interno)'));
-  bar.appendChild(el('span', { class: 'tiny', style: 'align-self:center' }, 'Il dettaglio completo include gli eventi interni ed è visibile solo agli operatori, coerentemente con i livelli di accesso.'));
-  card.appendChild(bar);
-  out.appendChild(card);
-}
-
-/* ============================================================
-   16. APP OPERATIVA (simulazione web)
-   ============================================================ */
-const appopState = { mode: 'padroncino', presi: new Set(), foto: new Set(), consegnati: new Set() };
-function initAppop() {
-  $('#appop-mode').addEventListener('change', e => { appopState.mode = e.target.value; renderPhone(); });
-  renderPhone();
-}
-function renderPhone() {
-  const isProprio = appopState.mode === 'padroncino';
-  $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — Corriere B';
-  const pkgs = SPEDIZIONI.filter(s => ['Pronta per etichettatura', 'In transito'].includes(s.stato)).slice(0, 4);
-  const body = $('#phone-body');
-  body.innerHTML = '';
-
-  const scan = el('div', { class: 'scan-zone' });
-  scan.innerHTML = `<div class="scan-ico">▦</div>Inquadra il barcode del collo`;
-  const bip = el('button', { class: 'btn btn-accent', style: 'margin-top:8px', onclick: () => {
-    const next = pkgs.find(p => !appopState.presi.has(p.id));
-    if (!next) { toast('Tutti i colli del giro sono già stati presi in carico'); return; }
-    appopState.presi.add(next.id);
-    toast(`🔊 BIP — ${next.id} preso in carico`, 'ok');
-    renderPhone();
-  } }, '📷 Simula bip di presa in carico');
-  scan.appendChild(bip);
-  body.appendChild(scan);
-
-  if (isProprio) {
-    const bordero = el('div', { class: 'info-box', style: 'font-size:11.5px' });
-    bordero.innerHTML = `<strong>Borderò digitale BRD-2026-0107</strong><br>Colli affidati: ${pkgs.length} · presi in carico: ${appopState.presi.size}/${pkgs.length}${appopState.presi.size === pkgs.length ? '<br>✔ Borderò completo — firma di presa in carico registrata' : ''}`;
-    body.appendChild(bordero);
-  } else {
-    body.appendChild(el('div', { class: 'tiny', style: 'margin-bottom:8px' }, 'Corriere esterno: nessun borderò interno — la presa in carico è tracciata sui sistemi del corriere.'));
-  }
-
-  pkgs.forEach(p => {
-    const item = el('div', { class: 'pkg-item' });
-    const preso = appopState.presi.has(p.id);
-    const foto = appopState.foto.has(p.id);
-    const done = appopState.consegnati.has(p.id);
-    item.innerHTML = `<div class="grow"><span class="mono" style="color:var(--brand);font-weight:600">${p.id}</span><br><span class="tiny">${esc(p.destinatario)} · ${esc(p.localita)}</span></div>`;
-    if (done) item.appendChild(el('span', {}, badge('Consegnato ✓', 'ok')));
-    else if (!preso) item.appendChild(el('span', {}, badge('da bippare', '')));
-    else {
-      const box = el('div');
-      const slot = el('div', { class: 'photo-slot' + (foto ? ' done' : ''), onclick: () => {
-        appopState.foto.add(p.id); toast('📸 Foto di consegna acquisita', 'ok'); renderPhone();
-      } }, foto ? '📸 Foto acquisita ✓' : '📸 Scatta foto (obbligatoria)');
-      box.appendChild(slot);
-      const btn = el('button', { class: 'btn btn-sm btn-primary', style: 'width:100%', onclick: () => {
-        if (!appopState.foto.has(p.id)) { toast('⚠ Foto obbligatoria prima di confermare la consegna', 'err'); return; }
-        appopState.consegnati.add(p.id);
-        const s = spedById(p.id);
-        s.stato = 'Consegnata';
-        s.storico.push({ stato: 'Consegnata', data: nowStr(), operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
-        s.tracking.push({ data: nowStr(), evento: 'Consegnata al destinatario (con foto)', luogo: s.localita, interno: false, operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
-        toast(`${p.id} consegnata ✓`, 'ok'); renderPhone();
-      } }, 'Conferma consegna');
-      box.appendChild(btn);
-      item.appendChild(box);
-    }
-    body.appendChild(item);
-  });
-}
-
-/* ============================================================
-   17. CONFIGURAZIONI · ARCHITETTURA (broker, rate limit)
-   ============================================================ */
-const ARCH = {
-  servizi: [
-    { nome: 'Import flussi clienti', on: true, rate: 42 },
-    { nome: 'Normalizzazione anagrafiche', on: true, rate: 38 },
-    { nome: 'Stampa etichette', on: true, rate: 55 },
-    { nome: 'Notifiche SMS/e-mail', on: true, rate: 30 },
-    { nome: 'Sync marketplace', on: true, rate: 25 }
-  ],
-  depth: 120
-};
-function initArch() {
-  const list = $('#svc-list');
-  list.innerHTML = '';
-  ARCH.servizi.forEach(s => {
-    const row = el('div', { class: 'svc-row' });
-    const led = el('span', { class: 'led' + (s.on ? '' : ' off') });
-    row.appendChild(led);
-    row.appendChild(el('span', { class: 'grow' }, `<strong>${esc(s.nome)}</strong> <span class="tiny">consumer · ${s.rate} msg/s</span>`));
-    row.appendChild(el('button', { class: 'btn btn-sm', onclick: () => {
-      s.on = !s.on;
-      led.classList.toggle('off', !s.on);
-      toast(s.on ? `${s.nome}: servizio riavviato` : `${s.nome}: servizio fermo — la coda inizierà ad accumularsi`, s.on ? 'ok' : 'err');
-    } }, s.on ? 'Ferma' : 'Avvia'));
-    list.appendChild(row);
-  });
-
-  // rate limit per vettore con storico orario (24 barre)
-  const rl = $('#rl-list'); rl.innerHTML = '';
-  VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
-    const limite = [600, 450, 300][vi];
-    const nodi = [3, 2, 2][vi];
-    const hours = Array.from({ length: 24 }, (_, h) => {
-      const base = limite * (0.25 + 0.5 * Math.exp(-Math.pow(h - 11, 2) / 18) + 0.35 * Math.exp(-Math.pow(h - 17, 2) / 10));
-      return Math.min(limite, Math.round(base * (0.85 + rnd() * 0.3)));
+  const body = `
+    <p class="hint" style="margin-bottom:12px">Servizio da applicare a ${selectedShipments.size} spedizioni selezionate. I servizi non supportati dal vettore assegnato sono disabilitati.</p>
+    ${SERVIZI_ACCESSORI.map(sv=>{
+      // il servizio è considerato "incompatibile" se TUTTE le spedizioni selezionate hanno un vettore che non lo supporta
+      const ships = [...selectedShipments].map(id=>SHIPMENTS.find(s=>s.id===id));
+      const anyIncompatible = ships.some(s => !(COMPATIBILITA_VETTORE[s.vettore]||[]).includes(sv));
+      return `
+      <label class="checkbox-row ${anyIncompatible ? 'is-disabled':''}">
+        <input type="checkbox" value="${sv}" class="apply-service-check" ${anyIncompatible ? 'disabled':''}>
+        ${sv}
+        ${anyIncompatible ? `<span class="service-flag"><span class="warn-icon">⚠</span><span class="tooltip">Servizio non supportato da questo vettore</span></span>` : ""}
+      </label>`;
+    }).join("")}
+  `;
+  const foot = `<button class="btn btn-ghost" id="modal-cancel">Annulla</button><button class="btn btn-primary" id="modal-apply">Applica</button>`;
+  openModal("Applica servizio accessorio", body, foot);
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-apply").addEventListener("click", ()=>{
+    const checked = [...document.querySelectorAll(".apply-service-check:checked")].map(c=>c.value);
+    if(checked.length===0){ showToast("Nessun servizio selezionato.", "danger"); return; }
+    selectedShipments.forEach(id=>{
+      const ship = SHIPMENTS.find(s=>s.id===id);
+      checked.forEach(sv=>{ if(!ship.servizi.includes(sv)) ship.servizi.push(sv); });
     });
-    const max = Math.max(...hours);
-    const cur = hours[19];
-    const row = el('div', { class: 'rl-row' });
-    row.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <strong style="font-family:var(--font-display)">${esc(v.nome)}</strong>
-        <span class="tiny">limite API: <span class="mono">${limite} req/min</span> · distribuito su <span class="mono">${nodi} nodi</span></span>
-        <span class="spacer" style="flex:1"></span>
-        ${cur > limite * 0.85 ? badge('throttling attivo', 'warn') : badge('nessun throttling', 'ok')}
-        <span class="tiny">ora corrente: <span class="mono">${cur}/${limite}</span></span>
+    closeModal();
+    showToast(`Servizi applicati a ${selectedShipments.size} spedizioni.`, "success");
+  });
+}
+
+function openWaybillModal(){
+  const ready = [...selectedShipments].map(id=>SHIPMENTS.find(s=>s.id===id)).filter(s=>s && s.stato==="Pronta per etichettatura");
+  if(ready.length===0){
+    showToast('Seleziona almeno una spedizione in stato "Pronta per etichettatura".', "danger");
+    return;
+  }
+  const s = ready[0];
+  const body = `
+    <div class="waybill">
+      <div class="stamp">AIR<br>ENTERPRISE<br>${s.id.split('-').pop()}</div>
+      <div class="eyebrow">Lettera di vettura (anteprima simulata)</div>
+      <div class="waybill-grid">
+        <div class="waybill-field"><b>Mittente</b>Air Enterprise — Centro di smistamento</div>
+        <div class="waybill-field"><b>Destinatario</b>${s.destinatario}, ${s.localita} (${s.provincia}) ${s.cap}</div>
+        <div class="waybill-field"><b>Codice spedizione</b><span class="mono">${s.id}</span></div>
+        <div class="waybill-field"><b>Vettore</b>${s.vettore}</div>
+        <div class="waybill-field"><b>Mandante</b>${s.mandante}</div>
+        <div class="waybill-field"><b>Servizi accessori</b>${s.servizi.length ? s.servizi.join(", ") : "Nessuno"}</div>
       </div>
-      <div class="bars">${hours.map(h => `<div class="bar ${h > limite * 0.85 ? 'peak' : ''}" style="height:${Math.max(3, Math.round(h / max * 100))}%" title="${h} req/min"></div>`).join('')}</div>
-      <div class="bars-x"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>`;
-    rl.appendChild(row);
+    </div>
+    ${ready.length>1 ? `<p class="hint" style="margin-top:12px">Verranno generate ${ready.length} lettere di vettura per le spedizioni selezionate pronte per l'etichettatura.</p>`:""}
+  `;
+  const foot = `<button class="btn btn-ghost" id="modal-cancel">Chiudi</button><button class="btn btn-primary" id="modal-confirm-print">Genera etichetta${ready.length>1?'e':''}</button>`;
+  openModal("Genera lettera di vettura", body, foot);
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-confirm-print").addEventListener("click", ()=>{
+    closeModal();
+    showToast(`${ready.length} lettera/e di vettura generata/e (simulazione).`, "success");
+  });
+}
+
+/* ---------- SPEDIZIONI: CODA (KANBAN) ---------- */
+
+function renderKanban(){
+  const cols = {revisione:"In revisione", staging:"In staging", parcheggio:"Parcheggio"};
+  // per semplicità includiamo anche "In sospeso" dentro "In revisione" e "Pronta per etichettatura" dentro "parcheggio"
+  const buckets = {revisione:[], staging:[], parcheggio:[]};
+  SHIPMENTS.forEach(s=>{
+    if(s.stato==="In revisione" || s.stato==="In sospeso") buckets.revisione.push(s);
+    else if(s.stato==="In staging") buckets.staging.push(s);
+    else buckets.parcheggio.push(s);
   });
 
-  // simulazione coda in tempo (quasi) reale
-  setInterval(() => {
-    const off = ARCH.servizi.filter(s => !s.on).length;
-    ARCH.depth += off * rint(25, 60) - (ARCH.servizi.length - off) * rint(8, 20);
-    ARCH.depth = Math.max(15, Math.min(5000, ARCH.depth));
-    if (!$('#view-config').classList.contains('active')) return;
-    $('#q-depth').textContent = ARCH.depth.toLocaleString('it-IT') + ' msg';
-    $('#q-thr').textContent = ARCH.servizi.filter(s => s.on).reduce((a, s) => a + s.rate, 0) + ' msg/s in consumo';
-    $('#q-cons').textContent = `${ARCH.servizi.filter(s => s.on).length}/${ARCH.servizi.length} attivi`;
-    $('#q-meter').style.width = Math.min(100, ARCH.depth / 3000 * 100) + '%';
-  }, 900);
-}
-
-/* ============================================================
-   18. DASHBOARD
-   ============================================================ */
-function initDashboard() {
-  $('#dash-date').textContent = 'Martedì 21 luglio 2026 · Centro di smistamento Genova Bolzaneto';
-  const capErr = SPEDIZIONI.filter(s => !s.capValido).length;
-  const giacAperte = GIACENZE.filter(g => g.esito === 'Aperta').length;
-  const perdita = LISTINI_VENDITA.filter(r => r.vendita < r.costo).length;
-  const flussiErr = FLUSSI.filter(f => f.stato === 'Errore').length;
-  $('#dash-kpis').innerHTML = `
-    <div class="kpi" onclick="showView('spedizioni')"><div class="kpi-label">Spedizioni in lavorazione</div><div class="kpi-value">${SPEDIZIONI.filter(s => !['Consegnata'].includes(s.stato)).length}</div><div class="kpi-note">su ${SPEDIZIONI.length} totali in vista</div></div>
-    <div class="kpi warn" onclick="showView('spedizioni')"><div class="kpi-label">CAP da correggere</div><div class="kpi-value">${capErr}</div><div class="kpi-note">azione massiva disponibile</div></div>
-    <div class="kpi err" onclick="showView('giacenze')"><div class="kpi-label">Giacenze aperte</div><div class="kpi-value">${giacAperte}</div><div class="kpi-note">${GIACENZE.filter(g => g.esito === 'Aperta' && g.giorni >= 5).length} oltre 5 giorni</div></div>
-    <div class="kpi err" onclick="showView('listini')"><div class="kpi-label">Righe vendita in perdita</div><div class="kpi-value">${perdita}</div><div class="kpi-note">controllo listini</div></div>
-    <div class="kpi ${flussiErr ? 'warn' : 'ok'}" onclick="showView('flussi')"><div class="kpi-label">Flussi in errore</div><div class="kpi-value">${flussiErr}</div><div class="kpi-note">su ${FLUSSI_TOTALI} configurati</div></div>`;
-
-  // distribuzione per stato
-  const dist = {};
-  STATO_PRIORITA.forEach(s => dist[s] = SPEDIZIONI.filter(x => x.stato === s).length);
-  const max = Math.max(...Object.values(dist));
-  $('#dash-stati').innerHTML = Object.entries(dist).map(([s, n]) => `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
-      <span style="width:190px;flex-shrink:0">${badgeStato(s)}</span>
-      <div style="flex:1;background:var(--neutral-bg);border-radius:999px;height:10px;overflow:hidden">
-        <div style="width:${n / max * 100}%;height:100%;background:var(--brand);border-radius:999px"></div>
+  Object.entries(buckets).forEach(([key, items])=>{
+    document.getElementById(`count-${key}`).textContent = items.length;
+    const nextStatus = key==="revisione" ? "In staging" : key==="staging" ? "Parcheggio" : "Pronta per etichettatura";
+    document.getElementById(`list-${key}`).innerHTML = items.map(s=>`
+      <div class="kanban-card">
+        <div class="kanban-card-top"><span class="kanban-card-id">${s.id}</span>${badgeForStato(s.stato)}</div>
+        <div class="kanban-card-meta">${s.mandante} · ${s.vettore}</div>
+        <button class="btn btn-secondary btn-sm advance-btn" data-id="${s.id}" data-next="${nextStatus}">Avanza a "${nextStatus}" →</button>
       </div>
-      <span class="mono small" style="width:26px;text-align:right">${n}</span>
-    </div>`).join('');
+    `).join("") || `<p class="hint">Nessuna spedizione in questa fase.</p>`;
+  });
 
-  $('#dash-activity').innerHTML = [
-    ['19:42', 'Import completato — Logistica Beta (CSV, 214 righe)', 'Flussi in ingresso'],
-    ['19:15', 'Azione massiva: 23 spedizioni → Corriere B', 'Spedizioni · M. Bruzzone'],
-    ['18:50', 'Nuovo listino 2027 caricato per Pharma Ligure', 'Listini · A. Vitali'],
-    ['18:22', 'Push Vinted: 3 nuovi ordini ricevuti', 'Connettore e-commerce'],
-    ['17:58', 'Giacenza SPD-2026-00131 → reso al mittente', 'Giacenze · S. Piaggio']
-  ].map(([t, w, d]) => `<li><div class="t-when">Oggi ${t}</div><div class="t-what">${esc(w)}</div><div class="t-where">${esc(d)}</div></li>`).join('');
+  document.querySelectorAll(".advance-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const ship = SHIPMENTS.find(s=>s.id===btn.dataset.id);
+      ship.stato = btn.dataset.next;
+      renderKanban();
+      renderSpedizioniTable();
+      showToast(`${ship.id} spostata in "${btn.dataset.next}".`, "success");
+    });
+  });
 }
 
-/* ============================================================
-   19. ROUTER + INIT
-   ============================================================ */
-function showView(name) {
-  $$('.view').forEach(v => v.classList.remove('active'));
-  $('#view-' + name).classList.add('active');
-  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
-  if (name === 'spedizioni' && $('#sped-detail-wrap').style.display === 'none' && $('#colli-wrap').style.display === 'none' && $('#diff-wrap').style.display === 'none') {
-    $('#sped-list-wrap').style.display = '';
-  }
-  window.scrollTo({ top: 0 });
+/* ---------- SPEDIZIONI: COLLI MADRE ---------- */
+
+function renderColliMadre(){
+  const wrap = document.getElementById("tree-colli");
+  wrap.innerHTML = COLLI_MADRE.map((c,idx)=>{
+    const consegnati = c.sotto.filter(s=>s.stato==="Consegnato").length;
+    const stato = consegnati === c.sotto.length ? "Consegnato" : consegnati===0 ? "Non consegnato" : "Consegnato parzialmente";
+    const badgeCls = stato==="Consegnato" ? "badge-success" : stato==="Non consegnato" ? "badge-warning":"badge-blue";
+    return `
+    <div class="tree-node" data-idx="${idx}">
+      <div class="tree-node-head">
+        <div class="tree-node-head-left">
+          <span class="tree-toggle">▶</span>
+          <span class="id-cell">${c.id}</span>
+          <span class="hint">${c.peso} · ${c.dim}</span>
+        </div>
+        <span class="badge ${badgeCls}">${stato}</span>
+      </div>
+      <div class="tree-children">
+        ${c.sotto.map(s=>`
+          <div class="sub-collo-row">
+            <span class="mono">${s.id}</span>
+            <span class="badge ${s.stato==='Consegnato'?'badge-success':'badge-warning'}">${s.stato}</span>
+          </div>`).join("")}
+        <p class="hint" style="margin-top:8px">I sotto-colli non consegnati possono essere rispediti singolarmente con mezzo e data differenti.</p>
+      </div>
+    </div>`;
+  }).join("");
+
+  wrap.querySelectorAll(".tree-node-head").forEach(head=>{
+    head.addEventListener("click", ()=> head.parentElement.classList.toggle("open"));
+  });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  $$('.nav-item').forEach(b => b.addEventListener('click', () => {
-    // tornando su Spedizioni dalla navbar si riparte sempre dall'elenco
-    if (b.dataset.view === 'spedizioni') {
-      $('#sped-detail-wrap').style.display = 'none';
-      $('#colli-wrap').style.display = 'none';
-      $('#diff-wrap').style.display = 'none';
-      $('#sped-list-wrap').style.display = '';
+/* ---------- SPEDIZIONI: DIFFERENZIALI ---------- */
+
+function renderDifferenziali(){
+  document.getElementById("tbody-differenziali").innerHTML = DIFFERENZIALI.map(d=>`
+    <tr class="${d.impatto!=='+0,00 €' ? 'row-warning':''}">
+      <td class="id-cell">${d.id}</td>
+      <td>${d.pd}</td><td>${d.pr}</td>
+      <td>${d.dd}</td><td>${d.dr}</td>
+      <td class="mono">${d.diff}</td>
+      <td class="mono">${d.impatto}</td>
+    </tr>`).join("");
+}
+
+/* ---------- LISTINI ---------- */
+
+let LISTINO_SELEZIONATO = null;
+
+function renderListiniTable(){
+  document.getElementById("tbody-listini").innerHTML = LISTINI.map(l=>`
+    <tr data-id="${l.id}" class="listino-row ${LISTINO_SELEZIONATO===l.id?'row-selected':''}">
+      <td>${l.nome}</td>
+      <td><span class="badge ${l.tipo==='Costo'?'badge-neutral':'badge-blue'}">${l.tipo}</span></td>
+      <td>${l.cliente}</td>
+      <td class="mono">${l.inizio} → ${l.fine}</td>
+      <td><button class="btn btn-ghost btn-sm select-listino" data-id="${l.id}">Apri scaglioni</button></td>
+    </tr>`).join("");
+
+  document.querySelectorAll(".select-listino").forEach(btn=>{
+    btn.addEventListener("click", ()=>{ LISTINO_SELEZIONATO = btn.dataset.id; renderListiniTable(); renderScaglioni(); });
+  });
+}
+
+function renderScaglioni(){
+  const l = LISTINI.find(x=>x.id===LISTINO_SELEZIONATO);
+  const title = document.getElementById("scaglioni-title");
+  const tbody = document.getElementById("tbody-scaglioni");
+  if(!l){ title.textContent = "Scaglioni — seleziona un listino"; tbody.innerHTML=""; return; }
+  title.textContent = `Scaglioni — ${l.nome}`;
+  tbody.innerHTML = l.scaglioni.map(s=>`
+    <tr class="${s.perdita ? 'row-danger':''}">
+      <td>${s.peso}</td>
+      <td>${s.volumetrico}</td>
+      <td class="mono">${s.base.toFixed(2)} €${s.perdita ? ' <span class="badge badge-danger">Sotto costo</span>':''}</td>
+      <td class="mono">${s.fuel.toFixed(2)} €</td>
+      <td class="mono">${s.tasse.toFixed(2)} €</td>
+      <td>${s.magg}</td>
+      <td>${s.agente}</td>
+    </tr>`).join("");
+}
+
+function setupDuplicaListino(){
+  document.getElementById("btn-duplica-listino").addEventListener("click", ()=>{
+    const costi = LISTINI.filter(l=>l.tipo==="Costo");
+    const body = `
+      <div class="field-row">
+        <label>Listino di costo di partenza</label>
+        <select id="dup-source">${costi.map(c=>`<option value="${c.id}">${c.nome}</option>`).join("")}</select>
+      </div>
+      <div class="field-row">
+        <label>Cliente / mandante destinatario</label>
+        <select id="dup-cliente">${MANDANTI.map(m=>`<option value="${m}">${m}</option>`).join("")}</select>
+      </div>
+      <div class="field-row">
+        <label>Modalità</label>
+        <div class="radio-row">
+          <label><input type="radio" name="dup-mode" value="ricarico" checked> Ricarico percentuale</label>
+          <label><input type="radio" name="dup-mode" value="assoluto"> Sovrascrittura assoluta (+1,00€ su ogni voce)</label>
+        </div>
+      </div>
+      <div class="field-row" id="dup-percent-row">
+        <label>Percentuale di ricarico</label>
+        <input type="number" id="dup-percent" value="10" min="0" max="200" style="width:100%">
+      </div>
+    `;
+    const foot = `<button class="btn btn-ghost" id="modal-cancel">Annulla</button><button class="btn btn-primary" id="modal-confirm-dup">Crea listino di vendita</button>`;
+    openModal("Duplica listino", body, foot);
+    document.getElementById("modal-cancel").addEventListener("click", closeModal);
+    document.getElementById("modal-confirm-dup").addEventListener("click", ()=>{
+      const sourceId = document.getElementById("dup-source").value;
+      const cliente = document.getElementById("dup-cliente").value;
+      const mode = document.querySelector('input[name="dup-mode"]:checked').value;
+      const pct = parseFloat(document.getElementById("dup-percent").value)||0;
+      const source = LISTINI.find(l=>l.id===sourceId);
+      const newId = `L-VEND-${pad(LISTINI.length+1,3)}`;
+      const newScaglioni = source.scaglioni.map(s=>{
+        const newBase = mode==="ricarico" ? s.base * (1+pct/100) : s.base + 1.0;
+        return {...s, base: Math.round(newBase*100)/100, perdita: newBase < s.base + 0.001 ? false : false};
+      });
+      // marca in perdita se per errore l'utente avesse messo ricarico 0 o negativo
+      newScaglioni.forEach((s,i)=>{ s.perdita = s.base < source.scaglioni[i].base; });
+      LISTINI.push({
+        id:newId, nome:`Vendita ${cliente} (da ${source.nome})`, tipo:"Vendita", cliente,
+        inizio:"2026-08-01", fine:"2027-07-31", scaglioni:newScaglioni
+      });
+      closeModal();
+      renderListiniTable();
+      showToast(`Listino "${newId}" creato con ${mode==="ricarico" ? `ricarico +${pct}%` : "sovrascrittura assoluta"}.`, "success");
+    });
+  });
+}
+
+function renderStoricita(){
+  const select = document.getElementById("select-storicita-cliente");
+  select.innerHTML = MANDANTI.map(m=>`<option value="${m}">${m}</option>`).join("");
+  select.addEventListener("change", ()=> drawTimeline(select.value));
+  drawTimeline(select.value);
+}
+function drawTimeline(cliente){
+  const rows = LISTINI.filter(l=>l.cliente===cliente && l.tipo==="Vendita");
+  const wrap = document.getElementById("timeline-listini");
+  if(rows.length===0){ wrap.innerHTML = `<p class="hint">Nessun listino di vendita storicizzato per questo cliente nella demo.</p>`; return; }
+  const today = new Date("2026-07-21");
+  wrap.innerHTML = rows.map(r=>{
+    const isFuture = new Date(r.inizio) > today;
+    return `<div class="timeline-item ${isFuture?'is-future':''}">
+      <div class="timeline-dates">${r.inizio}<br>→ ${r.fine}</div>
+      <div>${r.nome}</div>
+      <span class="badge ${isFuture?'badge-blue':'badge-success'}">${isFuture?'Futuro (negoziato)':'Attuale'}</span>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- FLUSSI ---------- */
+
+function renderFlussiKpi(){
+  const ok = FLUSSI_CLIENTI.filter(f=>f.stato==="ok").length;
+  const err = FLUSSI_CLIENTI.filter(f=>f.stato==="errore").length;
+  const coda = FLUSSI_CLIENTI.filter(f=>f.stato==="coda").length;
+  const kpis = [
+    {v:34, l:"Flussi configurati", cls:""},
+    {v:ok, l:"Import OK (campione)", cls:"kpi-success"},
+    {v:err, l:"Import in errore", cls:"kpi-danger"},
+    {v:coda, l:"Import in coda", cls:"kpi-warning"},
+  ];
+  document.getElementById("flussi-kpi").innerHTML = kpis.map(k=>`
+    <div class="kpi-card ${k.cls}"><div class="kpi-value">${k.v}</div><div class="kpi-label">${k.l}</div></div>`).join("");
+}
+
+function badgeForFlusso(stato){
+  if(stato==="ok") return `<span class="badge badge-success">OK</span>`;
+  if(stato==="errore") return `<span class="badge badge-danger">Errore</span>`;
+  return `<span class="badge badge-warning">In coda</span>`;
+}
+
+function renderFlussiTable(){
+  const filtro = document.getElementById("filter-stato-flusso").value;
+  const list = FLUSSI_CLIENTI.filter(f=> !filtro || f.stato===filtro);
+  document.getElementById("tbody-flussi").innerHTML = list.map((f,idx)=>`
+    <tr data-idx="${FLUSSI_CLIENTI.indexOf(f)}">
+      <td>${f.cliente}</td>
+      <td><span class="mono">${f.tipo}</span></td>
+      <td class="flusso-stato">${badgeForFlusso(f.stato)}</td>
+      <td class="mono flusso-data">${f.lastImport || "21/07/2026 " + (7+idx) + ":15"}</td>
+      <td><span class="badge badge-neutral">${f.micro}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm flusso-details" data-idx="${FLUSSI_CLIENTI.indexOf(f)}">Dettagli</button>
+        <button class="btn btn-secondary btn-sm flusso-sim" data-idx="${FLUSSI_CLIENTI.indexOf(f)}">Simula import</button>
+      </td>
+    </tr>`).join("");
+
+  document.querySelectorAll(".flusso-details").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const f = FLUSSI_CLIENTI[btn.dataset.idx];
+      openModal(f.cliente, `
+        <div class="field-row"><label>Tipo di flusso</label>${f.tipo}</div>
+        <div class="field-row"><label>Tipo microservizio</label>${f.micro}</div>
+        <div class="field-row"><label>Regole custom applicate</label>${f.regole}</div>
+      `, `<button class="btn btn-ghost" id="modal-cancel">Chiudi</button>`);
+      document.getElementById("modal-cancel").addEventListener("click", closeModal);
+    });
+  });
+  document.querySelectorAll(".flusso-sim").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const f = FLUSSI_CLIENTI[btn.dataset.idx];
+      const outcomes = ["ok","ok","ok","errore"]; // più probabile OK
+      f.stato = randFrom(outcomes);
+      f.lastImport = "21/07/2026 " + String(9+Math.floor(Math.random()*4)).padStart(2,"0") + ":" + pad(Math.floor(Math.random()*60),2);
+      renderFlussiTable();
+      renderFlussiKpi();
+      showToast(`Import simulato per ${f.cliente}: esito ${f.stato.toUpperCase()}.`, f.stato==="errore"?"danger":"success");
+    });
+  });
+}
+
+/* ---------- GIACENZE / TRACKING ---------- */
+
+function renderGiacenzeTable(){
+  document.getElementById("tbody-giacenze").innerHTML = GIACENZE.map((g,idx)=>{
+    if(g.stato!=="aperta"){
+      return `<tr><td class="id-cell">${g.id}</td><td>${g.dest}</td><td>${g.motivo}</td><td>${g.da}</td><td><span class="badge badge-success">${g.stato}</span></td></tr>`;
     }
-    showView(b.dataset.view);
-  }));
+    return `
+    <tr>
+      <td class="id-cell">${g.id}</td>
+      <td>${g.dest}</td>
+      <td>${g.motivo}</td>
+      <td>${g.da}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm giac-action" data-idx="${idx}" data-action="Nuovo tentativo di consegna">Nuovo tentativo</button>
+        <button class="btn btn-ghost btn-sm giac-action" data-idx="${idx}" data-action="Reso al mittente">Reso al mittente</button>
+        <button class="btn btn-ghost btn-sm giac-action" data-idx="${idx}" data-action="Smaltimento">Smaltimento</button>
+      </td>
+    </tr>`;
+  }).join("");
 
-  initSpedGlobalFilters();
-  initSpedTable();
+  document.querySelectorAll(".giac-action").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const g = GIACENZE[btn.dataset.idx];
+      g.stato = btn.dataset.action;
+      renderGiacenzeTable();
+      showToast(`${g.id}: scelta cliente registrata → "${btn.dataset.action}".`, "success");
+    });
+  });
+}
+
+function setupTracking(){
+  document.getElementById("btn-tracking-search").addEventListener("click", ()=>{
+    const code = document.getElementById("tracking-input").value.trim() || "AE-2026-004821";
+    const r = mockTrackingResult(code);
+    const badgeCls = r.stato==="Consegnata" ? "badge-success" : r.stato==="In giacenza" ? "badge-warning":"badge-blue";
+    document.getElementById("tracking-result").innerHTML = `
+      <div class="tracking-result-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="id-cell">${r.code}</span>
+          <span class="badge ${badgeCls}">${r.stato}</span>
+        </div>
+        <ul class="tracking-events">
+          ${r.eventi.map(e=>`<li><b>${e.label}</b><span>${e.t}</span></li>`).join("")}
+        </ul>
+      </div>`;
+  });
+}
+
+/* ---------- OPERATIVITÀ ---------- */
+
+function setupOperativita(){
+  document.getElementById("btn-op-scan").addEventListener("click", ()=>{
+    const input = document.getElementById("op-scan-input");
+    const code = input.value.trim();
+    if(!code){ showToast("Inserisci o scansiona un codice collo.", "danger"); return; }
+    const log = document.getElementById("scan-log");
+    const time = new Date().toLocaleTimeString("it-IT",{hour:'2-digit',minute:'2-digit'});
+    const li = document.createElement("li");
+    li.textContent = `${time} — Presa in carico: ${code}`;
+    log.prepend(li);
+    input.value = "";
+    showToast(`Collo ${code} preso in carico.`, "success");
+  });
+
+  document.getElementById("photo-upload").addEventListener("click", ()=>{
+    const el = document.getElementById("photo-upload");
+    el.classList.add("is-done");
+    document.getElementById("photo-upload-label").textContent = "✓ Foto acquisita (simulata)";
+  });
+
+  document.getElementById("btn-op-confirm").addEventListener("click", ()=>{
+    const code = document.getElementById("op-delivery-code").value.trim();
+    const photoDone = document.getElementById("photo-upload").classList.contains("is-done");
+    const hint = document.getElementById("delivery-hint");
+    if(!code){ hint.textContent = "Inserisci il codice collo."; hint.style.color = "var(--danger)"; return; }
+    if(!photoDone){ hint.textContent = "La foto di prova di consegna è obbligatoria."; hint.style.color = "var(--danger)"; return; }
+    hint.textContent = `Consegna di ${code} confermata con prova fotografica.`;
+    hint.style.color = "var(--success)";
+    document.getElementById("op-delivery-code").value = "";
+    document.getElementById("photo-upload").classList.remove("is-done");
+    document.getElementById("photo-upload-label").textContent = "📷 Foto prova di consegna (obbligatoria)";
+    showToast(`Consegna confermata per ${code}.`, "success");
+  });
+
+  document.getElementById("tbody-vettori-op").innerHTML = VETTORI_OP.map(v=>`
+    <tr>
+      <td>${v.nome}</td>
+      <td><span class="badge ${v.tipo==='Linea propria'?'badge-blue':'badge-neutral'}">${v.tipo}</span></td>
+      <td>${v.bordero ? '<span class="badge badge-success">Attivo</span>' : '<span class="badge badge-neutral">Non previsto</span>'}</td>
+      <td>${v.app ? '<span class="badge badge-success">Sì</span>' : '<span class="badge badge-neutral">No</span>'}</td>
+    </tr>`).join("");
+}
+
+/* ---------- QAPLA ---------- */
+
+function renderQapla(){
+  function rowsFor(filtered){
+    return filtered.map(o=>{
+      const badge = o.stato==="Spedizione generata" ? "badge-success" : o.stato==="Errore" ? "badge-danger" : "badge-warning";
+      const flussoBadge = o.marketplace==="Amazon" ? `<span class="badge badge-blue">${o.flusso}</span>` : o.flusso;
+      return `<tr>
+        <td>${o.marketplace}</td><td class="mono">${o.ordine}</td><td>${o.cliente}</td>
+        <td>${flussoBadge}</td><td><span class="badge ${badge}">${o.stato}</span></td>
+      </tr>`;
+    }).join("");
+  }
+  function renderOrdini(){
+    const mk = document.getElementById("filter-marketplace").value;
+    const filtered = QAPLA_ORDINI.filter(o=> !mk || o.marketplace===mk);
+    document.getElementById("tbody-qapla-ordini").innerHTML = rowsFor(filtered);
+  }
+  document.getElementById("filter-marketplace").addEventListener("change", renderOrdini);
+  renderOrdini();
+
+  document.getElementById("tbody-qapla-giacenze").innerHTML = GIACENZE.map(g=>`
+    <tr><td class="id-cell">${g.id}</td><td>Shopify</td><td><span class="badge badge-warning">In giacenza</span></td></tr>`).join("");
+
+  document.getElementById("tbody-qapla-consultazione").innerHTML = QAPLA_ORDINI.map(o=>`
+    <tr><td class="mono">${o.ordine}</td><td>${o.marketplace}</td><td><span class="badge badge-blue">${o.stato}</span></td></tr>`).join("");
+}
+
+/* ---------- UTENTI ---------- */
+
+function renderUtenti(){
+  document.getElementById("tbody-utenti").innerHTML = UTENTI.map((u,idx)=>`
+    <tr>
+      <td>${u.nome}</td>
+      <td>${u.ruolo}</td>
+      <td><span class="level-badge level-${u.livello}">${u.livello}</span></td>
+      <td><button class="btn btn-ghost btn-sm show-perm" data-idx="${idx}">Vedi permessi</button></td>
+    </tr>`).join("");
+
+  document.querySelectorAll(".show-perm").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const u = UTENTI[btn.dataset.idx];
+      document.getElementById("perm-panel-title").textContent = `Permessi — ${u.nome}`;
+      document.getElementById("perm-panel").innerHTML = MODULI_PERMESSO.map(m=>{
+        const has = u.permessi.some(p=>p.startsWith(m));
+        const soloConsult = u.permessi.some(p=>p.startsWith(m) && p.includes("sola consultazione"));
+        return `<label class="checkbox-row">
+          <input type="checkbox" ${has?'checked':''} ${u.livello===1?'':''}>
+          ${m} ${soloConsult ? '<span class="badge badge-neutral" style="margin-left:6px">sola consultazione</span>' : ''}
+        </label>`;
+      }).join("");
+    });
+  });
+}
+
+/* ---------- CONFIGURAZIONI / ARCHITETTURA ---------- */
+
+function renderConfig(){
+  function draw(){
+    document.getElementById("broker-stats").innerHTML = `
+      <div class="broker-stat"><div class="num">${BROKER_STATE.coda}</div><div class="lbl">Messaggi in coda</div></div>
+      <div class="broker-stat"><div class="num">${BROKER_STATE.consumer}</div><div class="lbl">Consumer attivi</div></div>
+    `;
+    document.getElementById("service-list").innerHTML = BROKER_STATE.servizi.map((s,idx)=>`
+      <div class="service-row">
+        <span>${s.nome}</span>
+        <button class="btn btn-sm ${s.online?'btn-secondary':'btn-danger'} toggle-service" data-idx="${idx}">
+          ${s.online ? 'Online' : 'Offline — riavvia'}
+        </button>
+      </div>`).join("");
+
+    document.querySelectorAll(".toggle-service").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const s = BROKER_STATE.servizi[btn.dataset.idx];
+        s.online = !s.online;
+        BROKER_STATE.coda = s.online ? Math.max(20, BROKER_STATE.coda - 40) : BROKER_STATE.coda + 60;
+        draw();
+        showToast(`${s.nome} → ${s.online ? "tornato online, la coda si sta svuotando" : "andato offline, i messaggi restano in coda"}.`, s.online ? "success":"danger");
+      });
+    });
+  }
+  draw();
+
+  document.getElementById("rate-limits").innerHTML = RATE_LIMITS.map(r=>{
+    const pct = Math.min(100, Math.round((r.volumeMin / r.limite) * 100));
+    const cls = pct >= 100 ? "is-over" : pct >= 75 ? "is-hot" : "";
+    return `
+    <div class="ratelimit-row">
+      <div class="ratelimit-head">
+        <span><b>${r.vettore}</b> — limite ${r.limite} richieste/min</span>
+        <span class="mono">${r.volumeMin} richieste/min (${pct}%)</span>
+      </div>
+      <div class="ratelimit-bar-wrap"><div class="ratelimit-bar ${cls}" style="width:${pct}%"></div></div>
+      <div class="node-dist">${r.nodi.map(n=>`<span class="node-tag">${n}</span>`).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- INIT ---------- */
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  setupNav();
+
+  renderDashboard();
+
+  populateSpedizioniFilters();
+  renderSpedizioniTable();
+  setupSpedizioniToolbar();
   renderKanban();
-  initListini();
-  initFlussi();
-  initGiacenze();
-  initEcommerce();
-  initUtenti();
-  initTracking();
-  initAppop();
-  initArch();
-  initDashboard();
+  renderColliMadre();
+  renderDifferenziali();
 
-  $('#btn-goto-colli').addEventListener('click', gotoColli);
-  $('#btn-goto-diff').addEventListener('click', gotoDiff);
-  $('#btn-colli-back').addEventListener('click', () => { $('#colli-wrap').style.display = 'none'; $('#sped-list-wrap').style.display = ''; dtSpedizioni.refresh(); });
-  $('#btn-diff-back').addEventListener('click', () => { $('#diff-wrap').style.display = 'none'; $('#sped-list-wrap').style.display = ''; dtSpedizioni.refresh(); });
+  renderListiniTable();
+  setupDuplicaListino();
+  renderStoricita();
+
+  renderFlussiKpi();
+  renderFlussiTable();
+  document.getElementById("filter-stato-flusso").addEventListener("change", renderFlussiTable);
+
+  renderGiacenzeTable();
+  setupTracking();
+
+  setupOperativita();
+
+  renderQapla();
+
+  renderUtenti();
+
+  renderConfig();
 });
-
-// esposti per gli onclick inline nei template
-window.openShipDetail = openShipDetail;
-window.openLdv = openLdv;
-window.spedById = spedById;
-window.gotoColli = gotoColli;
-window.showView = showView;
-window.toast = toast;
