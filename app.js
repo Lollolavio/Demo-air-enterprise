@@ -177,6 +177,148 @@ function makeSpedizioni() {
 const SPEDIZIONI = makeSpedizioni();
 const spedById = id => SPEDIZIONI.find(s => s.id === id);
 
+/* ---------------------------------------------------------- *
+ * 2b. Normalizzazione dataset demo al boot
+ *
+ * Regole applicate in ordine su ogni record di SPEDIZIONI:
+ *  A) se lo stato è "finale" (In transito / Consegnata / Pronto per la
+ *     spedizione / In giacenza) e CAP o tel non sono validi o manca
+ *     il vettore → correggi i dati senza cambiare stato ed emetti
+ *     un evento in storico + tracking;
+ *  B) se dopo A CAP o tel risultano ancora non validi (quindi la
+ *     spedizione NON era in stato finale) → porta lo stato a
+ *     "In revisione" e azzera il vettore; evento in storico+tracking;
+ *  C) se CAP+tel sono validi, lo stato è in revisione/sospeso e NON
+ *     c'è vettore → promozione a "In staging";
+ *  D) se CAP+tel+vettore sono validi e lo stato è in
+ *     revisione/sospeso/staging → promozione a
+ *     "Pronti per etichettatura".
+ *
+ * Al termine un toast riepilogativo unico riepiloga i 4 conteggi
+ * (A = stati finali corretti, B = in revisione, C = promozioni a
+ * staging, D = promozioni a Pronti per etichettatura).
+ * ---------------------------------------------------------- */
+function normalizzaDatasetDemo() {
+  const STATI_FINALI = ['In transito', 'Consegnata', 'Pronto per la spedizione', 'In giacenza'];
+  const REV_SOSPESO = ['In revisione', 'In sospeso'];
+  const REV_SOSPESO_STAGING = ['In revisione', 'In sospeso', 'In staging'];
+
+  let A = 0, B = 0, C = 0, D = 0;
+
+  for (const r of SPEDIZIONI) {
+    const isStatoFinale = STATI_FINALI.includes(r.stato);
+
+    // ---- A) Fix CAP/tel/vettore per stati finali ----
+    if (isStatoFinale) {
+      const capChanged = !r.capValido;
+      const telChanged = !r.telOk;
+      const vetChanged = !r.vettore;
+      if (capChanged) {
+        const loc = LOCALITA.find(l => l[0] === r.localita);
+        r.cap = loc ? loc[2] : '16121';
+        r.capValido = true;
+      }
+      if (telChanged) {
+        r.telefono = '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999);
+        r.telOk = true;
+      }
+      if (vetChanged) r.vettore = pick(VETTORI).nome;
+      if (capChanged || telChanged || vetChanged) {
+        A++;
+        const campi = [capChanged && 'CAP', telChanged && 'tel', vetChanged && 'vettore'].filter(Boolean).join('/');
+        r.storico.push({
+          stato: r.stato,
+          data: nowStr(),
+          operatore: 'M. Bruzzone',
+          nota: 'Normalizzazione dati demo (boot)'
+        });
+        r.tracking.push({
+          data: nowStr(),
+          evento: 'Normalizzazione dati anagrafici al boot',
+          luogo: 'Back office',
+          interno: true,
+          operatore: 'M. Bruzzone',
+          notaInterna: `Fix automatico dati demo (boot): ${campi}`
+        });
+      }
+    }
+
+    // ---- B) Declassamento a "In revisione" se CAP o tel non validi ----
+    if (!r.capValido || !r.telOk) {
+      r.stato = 'In revisione';
+      r.vettore = null;
+      B++;
+      r.storico.push({
+        stato: 'In revisione',
+        data: nowStr(),
+        operatore: 'M. Bruzzone',
+        nota: 'CAP o telefono non valido — riportata in revisione (boot)'
+      });
+      r.tracking.push({
+        data: nowStr(),
+        evento: 'CAP o telefono non valido — spedizione riportata in revisione',
+        luogo: 'Back office',
+        interno: true,
+        operatore: 'M. Bruzzone',
+        notaInterna: 'Declassamento automatico al boot per dati anagrafici incompleti'
+      });
+      continue; // salta C e D: appena declassata, non può essere promossa nello stesso giro
+    }
+
+    // ---- C) Promozione a "In staging" (CAP+tel OK, in rev/sospeso, senza vettore) ----
+    if (REV_SOSPESO.includes(r.stato) && !r.vettore) {
+      r.stato = 'In staging';
+      C++;
+      r.storico.push({
+        stato: 'In staging',
+        data: nowStr(),
+        operatore: 'M. Bruzzone',
+        nota: 'CAP e telefono validi — promozione automatica a staging (boot)'
+      });
+      r.tracking.push({
+        data: nowStr(),
+        evento: 'CAP e telefono validi — dati anagrafici validati, in attesa di assegnazione vettore',
+        luogo: 'Back office',
+        interno: true,
+        operatore: 'M. Bruzzone',
+        notaInterna: 'Auto-promo a staging al boot (CAP+tel OK)'
+      });
+    }
+
+    // ---- D) Promozione a "Pronti per etichettatura" (CAP+tel+vettore OK) ----
+    if (r.vettore && REV_SOSPESO_STAGING.includes(r.stato)) {
+      r.stato = 'Pronti per etichettatura';
+      D++;
+      r.storico.push({
+        stato: 'Pronti per etichettatura',
+        data: nowStr(),
+        operatore: 'M. Bruzzone',
+        nota: 'CAP+tel validi e vettore assegnato — promozione a Pronti per etichettatura (boot)'
+      });
+      r.tracking.push({
+        data: nowStr(),
+        evento: 'Vettore assegnato — spedizione pronta per la stampa etichetta',
+        luogo: 'Back office',
+        interno: true,
+        operatore: 'M. Bruzzone',
+        notaInterna: 'Auto-promo a Pronti per etichettatura al boot (CAP+tel+vettore OK)'
+      });
+    }
+  }
+
+  toast(
+    `Demo normalizzato: ${A} stati finali corretti, ${B} in revisione, ${C} promozioni a staging, ${D} promozioni a Pronti per etichettatura`,
+    'info',
+    'Boot'
+  );
+
+  return { A, B, C, D };
+}
+// normalizzaDatasetDemo() viene invocata dentro il listener DOMContentLoaded
+// in fondo al file: la chiamata al boot al top-level romperebbe lo script
+// perché toast() → logAzione() accede a `currentUser` (let, riga 2559) e
+// `VIEW_LABEL` (const, riga 491) dichiarati dopo la riga 317.
+
 /* ---- Colli madre: 3 bancali che raggruppano alcune spedizioni ---- */
 const COLLI_MADRE = [
   { id: 'CM-2026-0041', descr: 'Bancale Pharma Ligure — lotto 07/26', figli: [] },
@@ -1090,7 +1232,6 @@ function initSpedTable() {
     ],
     rowActions: (r) => {
       const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
-      box.appendChild(el('button', { class: 'btn btn-sm', title: 'Apri in tab dedicata', onclick: () => openShipDetail(r.id, 'tab') }, 'Apri ↗'));
       if (r.stato === 'Pronti per etichettatura') box.appendChild(el('button', { class: 'btn btn-sm btn-accent', onclick: () => openLdv(r) }, 'LDV'));
       return box;
     },
@@ -2495,6 +2636,12 @@ function openProfilo() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // normalizzazione dataset demo (boot, una tantum): normalizza CAP/tel/vettore,
+  // promuove in staging / Pronti per etichettatura, declassa in revisione.
+  // Va eseguita QUI, non al top-level, perché toast() → logAzione() accede a
+  // currentUser / VIEW_LABEL dichiarati più avanti nel file.
+  normalizzaDatasetDemo();
+
   // prima di tutto: schermata di login (l'app parte solo dopo l'accesso)
   $('#login-submit').addEventListener('click', doLogin);
   $('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
