@@ -1,12 +1,12 @@
-# TASK
+    # TASK
 
 ## 1
 
-- Login come cliente finale deve vedere solo tracking
+- ~Login come cliente finale deve vedere solo tracking~
 
 ## 2
 
-- Aggiungere pulsante conferma in Giacenza
+- ~Aggiungere pulsante conferma in Giacenza~
 
 ## 3
 
