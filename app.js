@@ -287,6 +287,80 @@ const ORDINI_ECOM = Array.from({ length: 28 }, (_, i) => {
 
 const LIVELLI_UTENTE = ['Piattaforma', 'Back office', 'Mandante/Sottocontratto', 'Cliente finale'];
 const MODULI = ['Spedizioni', 'Listini', 'Flussi', 'Giacenze', 'E-commerce', 'Utenti', 'Configurazioni'];
+
+// Vista di partenza dopo il login, per livello (i mandanti e i clienti finali
+// non hanno una "dashboard operativa" da consultare)
+const HOME_VIEW = {
+  'Piattaforma': 'dashboard',
+  'Back office': 'dashboard',
+  'Mandante/Sottocontratto': 'dashboard',
+  'Cliente finale': 'tracking'
+};
+
+/**
+ * Moduli ammessi per livello — guida sia la navbar sia il router
+ * (showView rifiuta le viste non in questa lista).
+ * 'tracking' è gestito a parte perché non è in MODULI.
+ */
+const VIEW_AMMESSE = {
+  'Piattaforma':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'config'],
+  'Back office':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'config'],
+  'Mandante/Sottocontratto':  ['dashboard', 'spedizioni', 'listini', 'giacenze', 'tracking'],
+  'Cliente finale':           ['tracking', 'giacenze']
+};
+const NAV_LABELS = {  // etichette mostrate nella navbar quando un modulo è disabilitato per livello
+  'Piattaforma':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Configurazioni'],
+  'Back office':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Configurazioni'],
+  'Mandante/Sottocontratto':  ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Giacenze', 'Tracking'],
+  'Cliente finale':           ['Tracking', 'Giacenze']
+};
+
+/**
+ * Matrice di permessi "documentata" nella sezione Utenti: deve riflettere
+ * esattamente ciò che l'app effettivamente fa (vedi filtri in doTrack, initGiacenze,
+ * initSpedTable, initListini).
+ */
+const PRESET_PERM = {
+  'Piattaforma':              { lettura: MODULI,                                                                  scrittura: MODULI,                                                            massive: MODULI,                                                config: MODULI },
+  'Back office':              { lettura: MODULI,                                                                  scrittura: ['Spedizioni', 'Giacenze', 'Flussi', 'E-commerce'],              massive: ['Spedizioni', 'Giacenze'],                             config: [] },
+  'Mandante/Sottocontratto':  { lettura: ['Spedizioni', 'Listini', 'Giacenze', 'Tracking'],                       scrittura: ['Spedizioni', 'Giacenze'],                                       massive: ['Spedizioni', 'Giacenze'],                             config: [] },
+  'Cliente finale':           { lettura: ['Tracking', 'Giacenze'],                                                 scrittura: [],                                                                massive: [],                                                     config: [] }
+};
+
+/* ---- Account demo fissi (login simulato senza backend) ---- */
+// user1@gmail.com è il cliente finale richiesto dal task: vede SOLO Tracking
+// e Giacenze (sola lettura) delle spedizioni del proprio mandante.
+const ACCOUNT_DEMO = {
+  'user1@gmail.com': {
+    nome: 'Utente 1',
+    email: 'user1@gmail.com',
+    livello: 'Cliente finale',
+    mandante: 'Pharma Ligure S.p.A.',
+    telefono: '+39 333 1110001',
+    ultimoAccesso: nowStr(),
+    stato: 'Attivo'
+  },
+  'mandante@pharmaligure.it': {
+    nome: 'Resp. Pharma Ligure',
+    email: 'mandante@pharmaligure.it',
+    livello: 'Mandante/Sottocontratto',
+    mandante: 'Pharma Ligure S.p.A.',
+    telefono: '+39 010 5551100',
+    ultimoAccesso: nowStr(),
+    stato: 'Attivo'
+  },
+  'm.bruzzone@ctsolution.demo': {
+    nome: 'M. Bruzzone',
+    email: 'm.bruzzone@ctsolution.demo',
+    livello: 'Back office',
+    mandante: '—',
+    telefono: '+39 335 6402187',
+    ultimoAccesso: nowStr(),
+    stato: 'Attivo'
+  }
+};
+
+// anagrafica estesa (i 19 record random restano per popolare la sezione Utenti)
 const UTENTI = Array.from({ length: 19 }, (_, i) => {
   const livello = pick(LIVELLI_UTENTE);
   return {
@@ -298,6 +372,9 @@ const UTENTI = Array.from({ length: 19 }, (_, i) => {
     stato: pick(['Attivo', 'Attivo', 'Attivo', 'Sospeso'])
   };
 });
+// assicuro che user1 compaia anche nella tabella Utenti con il mandante giusto
+UTENTI.push({ ...ACCOUNT_DEMO['user1@gmail.com'] });
+UTENTI.push({ ...ACCOUNT_DEMO['mandante@pharmaligure.it'] });
 
 const DIFFERENZIALI = SPEDIZIONI.filter(s => s.pesoReale !== s.pesoDich).map(s => {
   const diff = +(s.pesoReale - s.pesoDich).toFixed(1);
@@ -853,11 +930,13 @@ function bulkNormalizzaTel(sel, api) {
 
 /* ---- Tabella principale spedizioni ---- */
 function initSpedTable() {
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  const dataSrc = isMandante ? spedizioniVisibili(SPEDIZIONI) : SPEDIZIONI;
   dtSpedizioni = renderDataTable({
     mount: '#dt-spedizioni',
     title: 'Elenco spedizioni',
     noun: 'spedizioni',
-    data: () => SPEDIZIONI,
+    data: () => dataSrc,
     rowKey: r => r.id,
     selectable: true,
     pageSize: 10,
@@ -921,6 +1000,11 @@ function initSpedTable() {
       { label: 'Normalizza numeri (filtro)', run: bulkNormalizzaTel }
     ]
   });
+  // banner di scope per il profilo Mandante: spiega perché la lista è già filtrata
+  if (isMandante) {
+    const sub = $('#view-spedizioni #sped-list-wrap .view-header .sub');
+    if (sub) sub.textContent = `Mostro solo le spedizioni del mandante ${currentUser.mandante} (le altre sono filtrate lato permesso).`;
+  }
 }
 
 /* ---- Lettera di vettura (preview simulata) ---- */
@@ -975,6 +1059,8 @@ function openLdv(r) {
 
 /* ---- Kanban coda di staging ---- */
 function renderKanban() {
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  const src = isMandante ? spedizioniVisibili(SPEDIZIONI) : SPEDIZIONI;
   const cols = [
     { titolo: 'In revisione', stati: ['In revisione'], next: 'In staging', nextLabel: 'Valida dati → Staging' },
     { titolo: 'In staging', stati: ['In staging'], next: 'Pronta per etichettatura', nextLabel: 'Vettore ok → Pronta per etichettatura', needVettore: true },
@@ -982,8 +1068,8 @@ function renderKanban() {
   ];
   const root = $('#staging-kanban'); root.innerHTML = '';
   cols.forEach(c => {
-    const rows = SPEDIZIONI.filter(s => c.stati.includes(s.stato)).slice(0, 6);
-    const tot = SPEDIZIONI.filter(s => c.stati.includes(s.stato)).length;
+    const rows = src.filter(s => c.stati.includes(s.stato)).slice(0, 6);
+    const tot = src.filter(s => c.stati.includes(s.stato)).length;
     const col = el('div', { class: 'kanban-col' });
     col.appendChild(el('h4', {}, `${esc(c.titolo)} <span class="count">${tot}</span>`));
     rows.forEach(r => {
@@ -1311,6 +1397,19 @@ function gotoDiff() {
 let lvVettoreCorrente = 'Corriere A';
 
 function initListini() {
+  // per i Mandanti/Sottocontratti mostro SOLO il tab "Listini di vendita"
+  // (i listini vettore e i listini di costo interni sono informazioni di gestione interna)
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  if (isMandante) {
+    $$('#listini-tabs .tab-btn').forEach(b => { if (b.dataset.tab !== 'lvend') b.style.display = 'none'; });
+    // nascondi anche i pane non pertinenti
+    ['#pane-lv', '#pane-lc', '#pane-lstor'].forEach(sel => { const p = $(sel); if (p) p.style.display = 'none'; });
+    // attiva esplicitamente il pane "lvend" e marca il tab come attivo
+    const tab = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lvend');
+    if (tab) tab.classList.add('active');
+    const pane = $('#pane-lvend'); if (pane) pane.classList.add('active');
+  }
+
   // tab principali
   $$('#listini-tabs .tab-btn').forEach(b => b.addEventListener('click', () => {
     $$('#listini-tabs .tab-btn').forEach(x => x.classList.remove('active'));
@@ -1409,9 +1508,12 @@ function openDuplicaListino(sel, api) {
 }
 
 function renderListinoVendita() {
+  // il mandante vede solo le proprie righe di vendita
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  const dataSrc = isMandante ? LISTINI_VENDITA.filter(r => r.mandante === currentUser.mandante) : LISTINI_VENDITA;
   renderDataTable({
     mount: '#dt-listino-vendita', title: 'Listini di vendita per mandante', noun: 'righe di listino',
-    data: () => LISTINI_VENDITA, rowKey: r => r.mandante + '|' + r.vettoreRif + '|' + r.scaglione + '|' + r.vendita, pageSize: 10,
+    data: () => dataSrc, rowKey: r => r.mandante + '|' + r.vettoreRif + '|' + r.scaglione + '|' + r.vendita, pageSize: 10,
     rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
     columns: [
       { key: 'mandante', label: 'Mandante', ftype: 'enum' },
@@ -1513,9 +1615,13 @@ function esitoGiacenza(sel, api, esito) {
 }
 function initGiacenze() {
   const azioni = ['Nuovo tentativo di consegna', 'Reso al mittente', 'Smaltimento'];
+  const isCliente = currentUser?.livello === 'Cliente finale';
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  // Filtro dati: cliente finale e mandanti vedono solo le proprie giacenze
+  const dataSrc = isCliente || isMandante ? spedizioniVisibili(GIACENZE) : GIACENZE;
   dtGiacenze = renderDataTable({
     mount: '#dt-giacenze', title: 'Giacenze aperte e lavorate', noun: 'giacenze',
-    data: () => GIACENZE, rowKey: r => r.id, pageSize: 10, selectable: true,
+    data: () => dataSrc, rowKey: r => r.id, pageSize: 10, selectable: !isCliente,
     onRowClick: r => openShipDetail(r.ref.id, 'modal'),
     columns: [
       { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand)">${r.id}</span>` },
@@ -1528,6 +1634,11 @@ function initGiacenze() {
         render: r => badge(r.esito, r.esito === 'Aperta' ? 'err' : r.esito === 'Nuovo tentativo di consegna' ? 'info' : r.esito === 'Reso al mittente' ? 'warn' : '') }
     ],
     rowActions: (r, api) => {
+      if (isCliente) {
+        const v = el('span', { class: 'tiny' }, 'Sola lettura');
+        v.title = 'Il cliente finale può solo consultare le giacenze';
+        return v;
+      }
       const sel = el('select', { class: 'inline-select' });
       sel.appendChild(el('option', { value: '' }, 'Azione…'));
       azioni.forEach(a => sel.appendChild(el('option', {}, a)));
@@ -1538,11 +1649,16 @@ function initGiacenze() {
       });
       return sel;
     },
-    bulkActions: azioni.map(a => ({
+    bulkActions: isCliente ? [] : azioni.map(a => ({
       label: a + ' (selezione/filtro)', cls: a === 'Reso al mittente' ? 'btn-primary' : '',
       run: (sel, api) => esitoGiacenza(sel, api, a)
     }))
   });
+  // banner di scoping visibile sopra la tabella (solo per profili limitati)
+  if (isCliente || isMandante) {
+    const sub = $('#view-giacenze .view-header .sub');
+    if (sub) sub.textContent = `Mostro solo le giacenze del mandante ${currentUser.mandante}` + (isCliente ? ' · sola lettura' : ' · modificabili');
+  }
 }
 
 /* ============================================================
@@ -1619,13 +1735,9 @@ function initUtenti() {
   });
 }
 function renderPermPanel(u) {
-  // permessi tipici per livello (mock)
-  const preset = {
-    'Piattaforma':              { lettura: MODULI, scrittura: MODULI, massive: MODULI, config: MODULI },
-    'Back office':              { lettura: MODULI, scrittura: ['Spedizioni', 'Giacenze', 'Flussi', 'E-commerce'], massive: ['Spedizioni', 'Giacenze'], config: [] },
-    'Mandante/Sottocontratto':  { lettura: ['Spedizioni', 'Listini', 'Giacenze'], scrittura: [], massive: [], config: [] },
-    'Cliente finale':           { lettura: ['Spedizioni'], scrittura: [], massive: [], config: [] }
-  }[u.livello];
+  // la matrice mostrata qui DEVE riflettere ciò che l'app effettivamente fa
+  // (filtri in doTrack, initGiacenze, initSpedTable, initListini).
+  const preset = PRESET_PERM[u.livello] || PRESET_PERM['Back office'];
   const cols = ['Lettura', 'Scrittura', 'Massive', 'Config'];
   let grid = `<div>Modulo</div>` + cols.map(c => `<div>${c}</div>`).join('');
   MODULI.forEach(m => {
@@ -1634,20 +1746,50 @@ function renderPermPanel(u) {
       grid += `<div><input type="checkbox" ${set.includes(m) ? 'checked' : ''} onchange="toast('Permesso aggiornato (simulato) per ${esc(u.nome)}')"></div>`;
     });
   });
+  const note = u.livello === 'Mandante/Sottocontratto'
+    ? `I permessi elencati si applicano solo alle spedizioni/giacenze/listini del mandante <strong>${esc(u.mandante)}</strong>: le righe di altri mandanti non sono visibili né modificabili.`
+    : u.livello === 'Cliente finale'
+      ? `Il cliente finale vede <strong>solo Tracking e Giacenze</strong> in <strong>sola lettura</strong>, limitatamente alle spedizioni del mandante <strong>${esc(u.mandante)}</strong>. Le altre viste non compaiono nella navbar e il router le rifiuta.`
+      : `I livelli inferiori (mandanti e clienti finali) vedono solo le proprie spedizioni e, nel tracking, la sola vista pubblica senza eventi interni.`;
   $('#perm-panel').innerHTML = `
     <h3>Permessi — ${esc(u.nome)}</h3>
     <p class="small">${badge(u.livello, 'brand')} ${u.mandante !== '—' ? `<span class="tiny">vincolato a: <strong>${esc(u.mandante)}</strong></span>` : ''}</p>
     <div class="perm-grid">${grid}</div>
-    <p class="tiny" style="margin-top:8px">I livelli inferiori (mandanti e clienti finali) vedono solo le proprie spedizioni e, nel tracking, la sola vista pubblica senza eventi interni.</p>`;
+    <p class="tiny" style="margin-top:8px">${note}</p>`;
 }
 
 /* ============================================================
    15. TRACKING PUBBLICO
    ============================================================ */
+
+// Una spedizione "appartiene" all'utente corrente se:
+//   - l'utente è Back office / Piattaforma → sempre
+//   - l'utente è Mandante o Cliente finale → solo se spedizione.mandante === currentUser.mandante
+// Restituisce true anche se non c'è currentUser (es. pre-login), così il tracking
+// resta consultabile dal pulsante "Prova con" prima del login.
+function spedizioneVisibile(r) {
+  if (!currentUser) return true;
+  const liv = currentUser.livello;
+  if (liv === 'Piattaforma' || liv === 'Back office') return true;
+  return r.mandante === currentUser.mandante;
+}
+function spedizioniVisibili(rows) { return rows.filter(spedizioneVisibile); }
+
 function initTracking() {
-  const conLdv = SPEDIZIONI.filter(s => s.ldv).slice(0, 3);
   const sg = $('#track-suggest');
-  conLdv.forEach(s => sg.appendChild(el('button', { onclick: () => { $('#track-input').value = s.ldv; doTrack(); } }, s.ldv)));
+  sg.innerHTML = 'Prova con:';
+  // i suggerimenti rapidi rispettano il filtro per mandante
+  const conLdv = spedizioniVisibili(SPEDIZIONI.filter(s => s.ldv)).slice(0, 3);
+  if (conLdv.length === 0) {
+    sg.appendChild(el('span', { class: 'tiny' }, ' (nessuna spedizione del tuo mandante ha ancora una LDV)'));
+  } else {
+    conLdv.forEach(s => sg.appendChild(el('button', { onclick: () => { $('#track-input').value = s.ldv; doTrack(); } }, s.ldv)));
+  }
+  // nota visibile per i ruoli "limitati"
+  if (currentUser && (currentUser.livello === 'Cliente finale' || currentUser.livello === 'Mandante/Sottocontratto')) {
+    sg.appendChild(el('span', { class: 'tiny', style: 'margin-left:8px' },
+      ` — visibili solo le spedizioni del mandante ${currentUser.mandante}`));
+  }
   $('#track-btn').addEventListener('click', doTrack);
   $('#track-input').addEventListener('keydown', e => { if (e.key === 'Enter') doTrack(); });
 }
@@ -1655,7 +1797,8 @@ function doTrack() {
   const code = $('#track-input').value.trim().toUpperCase();
   const s = SPEDIZIONI.find(x => x.ldv === code || x.id === code);
   const out = $('#track-result');
-  if (!s) {
+  // messaggio unico per "non esiste" e "non è tua" — evita enumeration della base
+  if (!s || !spedizioneVisibile(s)) {
     out.innerHTML = `<div class="card"><div class="err-box">Nessuna spedizione trovata con il codice <span class="mono">${esc(code || '—')}</span>. Controlla il codice sulla lettera di vettura e riprova.</div></div>`;
     return;
   }
@@ -1861,6 +2004,16 @@ function initDashboard() {
    19. ROUTER + INIT
    ============================================================ */
 function showView(name) {
+  // Guardia sui permessi: redirect silente se l'utente corrente non può
+  // accedere alla vista richiesta. showView viene chiamata sia dal router
+  // (click su nav-item) sia da handler interni (openShipDetail, ecc.).
+  if (currentUser) {
+    const ammesse = VIEW_AMMESSE[currentUser.livello] || VIEW_AMMESSE['Back office'];
+    if (!ammesse.includes(name)) {
+      const home = HOME_VIEW[currentUser.livello] || 'dashboard';
+      name = home;
+    }
+  }
   $$('.view').forEach(v => v.classList.remove('active'));
   $('#view-' + name).classList.add('active');
   $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -1870,22 +2023,106 @@ function showView(name) {
   window.scrollTo({ top: 0 });
 }
 
+/**
+ * Nasconde i bottoni della navbar non ammessi per il livello corrente.
+ * Viene richiamata dopo il login e ogni volta che il livello dovesse cambiare.
+ */
+function applyNavForLevel(livello) {
+  const ammesse = VIEW_AMMESSE[livello] || VIEW_AMMESSE['Back office'];
+  $$('#mainnav .nav-item').forEach(b => {
+    const ok = ammesse.includes(b.dataset.view);
+    b.style.display = ok ? '' : 'none';
+  });
+  // ricostruisco il blocco profilo utente in modo idempotente (logout+login non deve duplicare nodi)
+  const nu = $('#nav-user');
+  if (!nu) return;
+  const nome = currentUser?.nome || 'Utente';
+  const iniziali = nome.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'U';
+  nu.innerHTML = '';
+  nu.appendChild(el('span', { class: 'avatar' }, iniziali));
+  const box = el('span');
+  box.appendChild(document.createTextNode(nome));
+  box.appendChild(el('br'));
+  box.appendChild(el('span', { class: 'user-livello', 'data-livello': livello }, livello));
+  nu.appendChild(box);
+  // se i data table sono già stati inizializzati (caso logout → login con altro livello),
+  // ricalcolo i dataSrc basati sul nuovo currentUser
+  if (appInitialized) {
+    rebuildDataSources();
+  }
+}
+
+/**
+ * Ricalcola i dataSrc dei data table in base al livello del currentUser corrente.
+ * Viene chiamato dopo il login (via applyNavForLevel) e copre il caso
+ * "stesso tab aperto, logout, login con un altro livello".
+ */
+function rebuildDataSources() {
+  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
+  if (dtSpedizioni) {
+    dtSpedizioni.state.data = () => isMandante ? spedizioniVisibili(SPEDIZIONI) : SPEDIZIONI;
+    dtSpedizioni.onFiltersChanged();
+  }
+  if (dtGiacenze) {
+    const isCliente = currentUser?.livello === 'Cliente finale';
+    const dataSrc = (isCliente || isMandante) ? spedizioniVisibili(GIACENZE) : GIACENZE;
+    dtGiacenze.state.data = () => dataSrc;
+    dtGiacenze.onFiltersChanged();
+  }
+  if (dtFlussi) dtFlussi.onFiltersChanged();
+  renderKanban();
+  renderListinoVendita();
+  // Tracking: i suggerimenti rapidi vanno rigenerati
+  const sg = $('#track-suggest');
+  if (sg) {
+    sg.innerHTML = 'Prova con:';
+    const conLdv = spedizioniVisibili(SPEDIZIONI.filter(s => s.ldv)).slice(0, 3);
+    if (conLdv.length === 0) {
+      sg.appendChild(el('span', { class: 'tiny' }, ' (nessuna spedizione del tuo mandante ha ancora una LDV)'));
+    } else {
+      conLdv.forEach(s => sg.appendChild(el('button', { onclick: () => { $('#track-input').value = s.ldv; doTrack(); } }, s.ldv)));
+    }
+    if (currentUser && (currentUser.livello === 'Cliente finale' || currentUser.livello === 'Mandante/Sottocontratto')) {
+      sg.appendChild(el('span', { class: 'tiny', style: 'margin-left:8px' },
+        ` — visibili solo le spedizioni del mandante ${currentUser.mandante}`));
+    }
+  }
+}
+
 /* ---- Login simulato + utente corrente (punti 6-7) ---- */
 let currentUser = null;
 let appInitialized = false; // evita doppio binding dei listener dopo logout → nuovo login
 
-function doLogin() {
-  currentUser = {
+function lookupUser(email) {
+  const k = (email || '').trim().toLowerCase();
+  if (ACCOUNT_DEMO[k]) return { ...ACCOUNT_DEMO[k], email: k };
+  // fallback: qualsiasi altra mail entra come Back office (comportamento demo preesistente)
+  return {
     nome: 'M. Bruzzone',
     livello: 'Back office',
-    email: 'm.bruzzone@ctsolution.demo',
+    email: k || 'm.bruzzone@ctsolution.demo',
+    mandante: '—',
     telefono: '+39 335 6402187',
-    ultimoAccesso: nowStr()
+    ultimoAccesso: nowStr(),
+    stato: 'Attivo'
   };
+}
+
+function doLogin() {
+  const email = $('#login-email').value;
+  currentUser = lookupUser(email);
+  currentUser.ultimoAccesso = nowStr();
   document.body.classList.remove('logged-out');
   if (!appInitialized) { initApp(); appInitialized = true; }
-  showView('dashboard');
-  toast(`Benvenuto, ${currentUser.nome} — accesso come ${currentUser.livello}`, 'ok');
+  applyNavForLevel(currentUser.livello); // nasconde voci non ammesse per il livello
+  const home = HOME_VIEW[currentUser.livello] || 'dashboard';
+  showView(home);
+  const note = currentUser.livello === 'Cliente finale'
+    ? `${currentUser.livello} (accesso limitato a Tracking e Giacenze del mandante ${currentUser.mandante})`
+    : currentUser.livello === 'Mandante/Sottocontratto'
+      ? `${currentUser.livello} (vedi solo dati di ${currentUser.mandante})`
+      : currentUser.livello;
+  toast(`Benvenuto, ${currentUser.nome} — accesso come ${note}`, 'ok');
 }
 
 function doLogout() {
@@ -1893,6 +2130,10 @@ function doLogout() {
   currentUser = null;
   $('#login-password').value = '';
   document.body.classList.add('logged-out'); // riporta alla schermata di login senza reload
+  // reset navbar: rimostra tutte le voci (verranno filtrate di nuovo al prossimo login)
+  $$('#mainnav .nav-item').forEach(b => b.style.display = '');
+  const nu = $('#nav-user');
+  if (nu) nu.innerHTML = '<span class="avatar">--</span><span>Utente<br><span style="opacity:.65">non connesso</span></span>';
 }
 
 function openProfilo() {

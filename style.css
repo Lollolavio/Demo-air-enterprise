@@ -112,6 +112,10 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--in
   background: var(--accent); color: #fff;
   display: grid; place-items: center; font-weight: 700; font-size: 12px;
 }
+.nav-user .user-livello { display:inline-block;margin-top:2px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:600;letter-spacing:.2px;background:rgba(255,255,255,.08);color:#fff; }
+.nav-user .user-livello[data-livello="Back office"]            { background:rgba(57,142,230,.22);color:#b9d6ff; }
+.nav-user .user-livello[data-livello="Mandante/Sottocontratto"]{ background:rgba(123,97,255,.22);color:#d6c8ff; }
+.nav-user .user-livello[data-livello="Cliente finale"]         { background:rgba(46,184,131,.22);color:#aaf0c8; }
 
 /* ---------- Layout ---------- */
 main { max-width: 1440px; margin: 0 auto; padding: 20px 22px 60px; }

@@ -1,8 +1,8 @@
-# TASK
+    # TASK
 
 ## 1
 
-- Login come cliente finale deve vedere solo tracking
+- Login come cliente finale deve vedere solo tracking (fatto Lorenzo)
 
 ## 2
 
