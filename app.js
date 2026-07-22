@@ -372,12 +372,26 @@ const FLUSSI = Array.from({ length: 15 }, (_, i) => {
 const FLUSSI_TOTALI = 34;
 
 /* ---------------------------------------------------------- *
- * 4. Listini — tre livelli
+ * 4. Listini e tariffe — modello a VERSIONI
+ *
+ *    Ogni listino (costo o vendita) è una "versione" con proprie righe
+ *    e un periodo di validità (decorrenzaInizio / decorrenzaFine). Le
+ *    sezioni della UI sono 4: listino di costo ATTIVO, suo STORICO,
+ *    listino di vendita ATTIVO, suo STORICO.
+ *
+ *    - I listini di costo non hanno un "mandante" (sono il costo che
+ *      CT Solution paga al vettore, uguale per tutti i clienti).
+ *    - I listini di vendita sono per-mandante.
+ *    - Lo stato è derivato dalla data odierna: 'attivo' se oggi è nel
+ *      periodo, 'futuro' se decorrenzaInizio > oggi, 'archiviato' se
+ *      decorrenzaFine < oggi. Una decorrenza vuota = sempre attivo.
  * ---------------------------------------------------------- */
 const SCAGLIONI = ['0–2 kg', '2–5 kg', '5–10 kg', '10–20 kg', '20–30 kg', '30–50 kg'];
 const ZONE = ['Nazionale', 'UE', 'Extra-UE'];
+const OGGI = '2026-07-22'; // demo: data fissa, congelata per i test di auto-arciviazione
 
 // 4a. Listini dei vettori terzi (base costo esterna, non negoziabile)
+//     Restano come dataset di consultazione nella sotto-tab "Origine vettori".
 const LISTINI_VETTORE = {};
 VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
   const rows = [];
@@ -397,50 +411,201 @@ VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
   };
 });
 
-// 4b. Listini di costo interni (derivati dai listini vettore, o calcolati per le linee proprie)
-const LISTINI_COSTO = [];
-VETTORI.forEach(v => {
-  SCAGLIONI.forEach((sc, si) => {
-    const base = v.tipo === 'terzo'
-      ? LISTINI_VETTORE[v.nome].rows.find(r => r.scaglione === sc && r.zona === 'Nazionale').prezzo
-      : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2); // costo calcolato linea propria
-    LISTINI_COSTO.push({
-      vettore: v.nome, tipo: v.tipo === 'terzo' ? 'Derivato da vettore' : 'Calcolato (linea propria)',
-      scaglione: sc, zona: 'Nazionale',
-      costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base, // 3% oneri interni sul listino vettore
-      costoVettore: v.tipo === 'terzo' ? base : null,
-      origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino'
+/* ---- Helper: stato di una versione di listino in base alla data odierna ---- */
+function statoListino(listino) {
+  const oggi = OGGI;
+  if (listino.stato === 'archiviato') return 'archiviato'; // forzato manualmente
+  if (listino.decorrenzaInizio && oggi < listino.decorrenzaInizio) return 'futuro';
+  if (listino.decorrenzaFine && oggi > listino.decorrenzaFine) return 'archiviato';
+  return 'attivo';
+}
+
+/* ---- 4b. Listini di costo (versioni) ----
+ * Ogni versione: { id, label, decorrenzaInizio, decorrenzaFine, stato, righe[], note }
+ * Le righe mantengono la forma { vettore, scaglione, zona, costo, costoVettore, origine, origineTipo }.
+ */
+const LISTINI_COSTO_VERSIONI = [];
+
+// prima versione: "Listino costo 2026 — attivo" (derivata dai vettori)
+{
+  const righe = [];
+  VETTORI.forEach(v => {
+    SCAGLIONI.forEach((sc, si) => {
+      const base = v.tipo === 'terzo'
+        ? LISTINI_VETTORE[v.nome].rows.find(r => r.scaglione === sc && r.zona === 'Nazionale').prezzo
+        : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2);
+      righe.push({
+        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
+        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
+        costoVettore: v.tipo === 'terzo' ? base : null,
+        origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino',
+        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
+        valoreOriginale: v.tipo === 'terzo' ? base : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2),
+        personalizzazione: null // { tipo: 'perc'|'abs', valore: n, applicataIl: iso }
+      });
     });
   });
-});
+  LISTINI_COSTO_VERSIONI.push({
+    id: 'LC-2026-01',
+    label: 'Listino costo 2026 — in vigore',
+    decorrenzaInizio: '2026-01-01',
+    decorrenzaFine: '2026-12-31',
+    stato: 'attivo',
+    righe,
+    note: 'Derivato dai listini vettori terzi (con oneri interni +3%) o calcolato per le linee proprie.',
+    creatoIl: '2026-01-05 09:12',
+    creatoDa: 'A. Vitali'
+  });
+}
 
-// 4c. Listini di vendita per mandante (derivati dal costo, alcune righe in perdita)
-const LISTINI_VENDITA = [];
+// versione storica (2025, archiviata) — presente per popolare lo storico
+{
+  const righe = [];
+  VETTORI.forEach((v, vi) => {
+    SCAGLIONI.forEach((sc, si) => {
+      const base = v.tipo === 'terzo'
+        ? +(3.0 + si * 1.6 + vi * 0.4 + rnd() * 0.6).toFixed(2)
+        : +(2.2 + si * 1.4 + rnd() * 0.5).toFixed(2);
+      righe.push({
+        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
+        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
+        costoVettore: v.tipo === 'terzo' ? base : null,
+        origine: 'Listino storico 2025',
+        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
+        valoreOriginale: base,
+        personalizzazione: null
+      });
+    });
+  });
+  LISTINI_COSTO_VERSIONI.push({
+    id: 'LC-2025-01',
+    label: 'Listino costo 2025 — archiviato',
+    decorrenzaInizio: '2025-01-01',
+    decorrenzaFine: '2025-12-31',
+    stato: 'archiviato',
+    righe,
+    note: 'Versione 2025: prezzi di esempio del periodo precedente (solo consultazione).',
+    creatoIl: '2025-01-08 10:20',
+    creatoDa: 'A. Vitali'
+  });
+}
+
+// versione FUTURA (2027) — già negoziata, in attesa di decorrenza
+{
+  const righe = LISTINI_COSTO_VERSIONI[0].righe.map(r => ({
+    ...r,
+    costo: +(r.costo * 1.04).toFixed(2), // +4% rispetto al 2026 (demo)
+    valoreOriginale: r.costo,
+    personalizzazione: { tipo: 'perc', valore: 4, applicataIl: '2026-06-15' }
+  }));
+  LISTINI_COSTO_VERSIONI.push({
+    id: 'LC-2027-01',
+    label: 'Listino costo 2027 — già negoziato',
+    decorrenzaInizio: '2027-01-01',
+    decorrenzaFine: '2027-12-31',
+    stato: 'futuro',
+    righe,
+    note: 'Rinnovo 2027: ricarico +4% sul listino 2026, in attesa di decorrenza automatica.',
+    creatoIl: '2026-06-15 16:40',
+    creatoDa: 'A. Vitali'
+  });
+}
+
+/* ---- 4c. Listini di vendita per mandante (versioni) ----
+ * Ogni versione: { id, mandante, label, decorrenzaInizio, decorrenzaFine, stato, righe[], note, agente, provvigionePct, scontoPct }.
+ * Le righe: { vettoreRif, scaglione, zona, costo, costoVettore, vendita, margine, personalizzazione }.
+ */
+const LISTINI_VENDITA_VERSIONI = [];
+let _lcSeq = 1;
+const nextListinoVenditaId = (mandante) => {
+  const same = LISTINI_VENDITA_VERSIONI.filter(l => l.mandante === mandante);
+  const nn = same.length + 1;
+  return `LV-${mandante.split(' ')[0].replace(/[^A-Za-z]/g, '').toUpperCase() || 'CLI'}-${String(nn).padStart(3, '0')}`;
+};
+
 MANDANTI.forEach((m, mi) => {
   const vetRef = VETTORI[mi % VETTORI.length].nome;
-  SCAGLIONI.forEach((sc, si) => {
-    const costoRow = LISTINI_COSTO.find(r => r.vettore === vetRef && r.scaglione === sc);
-    let vendita = +(costoRow.costo * (1.18 + rnd() * 0.22)).toFixed(2);
-    // righe in perdita: alcune sotto il costo interno, almeno una sotto il listino vettore
-    if (mi === 1 && si === 3) vendita = +(costoRow.costo * 0.93).toFixed(2);                 // sotto costo interno
-    if (mi === 2 && si === 4 && costoRow.costoVettore) vendita = +(costoRow.costoVettore * 0.9).toFixed(2); // sotto listino VETTORE
-    if (mi === 4 && si === 5) vendita = +(costoRow.costo * 0.96).toFixed(2);
-    LISTINI_VENDITA.push({
-      mandante: m, vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
-      costo: costoRow.costo, costoVettore: costoRow.costoVettore, vendita,
-      margine: +(vendita - costoRow.costo).toFixed(2)
+  const agente = pick(['Ag. Genova Centro', 'Ag. Milano Fiera', 'Ag. Roma EUR', 'Ag. Torino Nord']);
+  const provvigionePct = +(5 + rnd() * 8).toFixed(1);
+  const scontoPct = 0;
+
+  // 2025 archiviato
+  {
+    const righe = [];
+    SCAGLIONI.forEach((sc, si) => {
+      const costoRef = LISTINI_COSTO_VERSIONI[1].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
+      const vendita = +(costoRef.costo * (1.15 + rnd() * 0.2)).toFixed(2);
+      righe.push({
+        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
+        costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
+        margine: +(vendita - costoRef.costo).toFixed(2),
+        personalizzazione: null
+      });
     });
-  });
+    LISTINI_VENDITA_VERSIONI.push({
+      id: nextListinoVenditaId(m),
+      mandante: m, label: `Listino ${m} — 2025 (archiviato)`,
+      decorrenzaInizio: '2025-01-01', decorrenzaFine: '2025-12-31',
+      stato: 'archiviato', righe, agente, provvigionePct, scontoPct,
+      note: 'Listino 2025 — periodo precedente.',
+      creatoIl: '2025-01-10 11:00', creatoDa: 'A. Vitali'
+    });
+  }
+
+  // 2026 attivo (con alcune righe in perdita intenzionali)
+  {
+    const righe = [];
+    SCAGLIONI.forEach((sc, si) => {
+      const costoRef = LISTINI_COSTO_VERSIONI[0].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
+      let vendita = +(costoRef.costo * (1.18 + rnd() * 0.22)).toFixed(2);
+      // righe in perdita: alcune sotto il costo interno, almeno una sotto il listino vettore
+      if (mi === 1 && si === 3) vendita = +(costoRef.costo * 0.93).toFixed(2);
+      if (mi === 2 && si === 4 && costoRef.costoVettore) vendita = +(costoRef.costoVettore * 0.9).toFixed(2);
+      if (mi === 4 && si === 5) vendita = +(costoRef.costo * 0.96).toFixed(2);
+      righe.push({
+        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
+        costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
+        margine: +(vendita - costoRef.costo).toFixed(2),
+        personalizzazione: null
+      });
+    });
+    LISTINI_VENDITA_VERSIONI.push({
+      id: nextListinoVenditaId(m),
+      mandante: m, label: `Listino ${m} — 2026 in vigore`,
+      decorrenzaInizio: '2026-01-01', decorrenzaFine: '2026-12-31',
+      stato: 'attivo', righe, agente, provvigionePct, scontoPct,
+      note: 'Listino 2026 — in vigore. Per personalizzare: duplica questo listino.',
+      creatoIl: '2025-12-20 14:30', creatoDa: 'A. Vitali'
+    });
+  }
+
+  // 2027 futuro
+  {
+    const src = LISTINI_VENDITA_VERSIONI[LISTINI_VENDITA_VERSIONI.length - 1];
+    const righe = src.righe.map(r => ({
+      ...r,
+      vendita: +(r.vendita * 1.05).toFixed(2),
+      margine: +((r.vendita * 1.05) - r.costo).toFixed(2),
+      personalizzazione: { tipo: 'perc', valore: 5, applicataIl: '2026-06-10' }
+    }));
+    LISTINI_VENDITA_VERSIONI.push({
+      id: nextListinoVenditaId(m),
+      mandante: m, label: `Listino ${m} — 2027 già negoziato`,
+      decorrenzaInizio: '2027-01-01', decorrenzaFine: '2027-12-31',
+      stato: 'futuro', righe, agente, provvigionePct, scontoPct,
+      note: 'Rinnovo 2027: ricarico +5% sul 2026, in attesa di decorrenza.',
+      creatoIl: '2026-06-10 09:00', creatoDa: 'A. Vitali'
+    });
+  }
 });
 
-const STORICO_LISTINI = {};
-MANDANTI.forEach(m => {
-  STORICO_LISTINI[m] = [
-    { periodo: '01/01/2025 → 31/12/2025', label: 'Listino 2025 (archiviato)', stato: 'archiviato' },
-    { periodo: '01/01/2026 → 31/12/2026', label: 'Listino 2026 — attivo', stato: 'attivo' },
-    { periodo: '01/01/2027 → 31/12/2027', label: 'Listino 2027 — già negoziato, in attesa di decorrenza', stato: 'futuro' }
-  ];
-});
+/* ---- Auto-arciviazione: prima di ogni render, ricalcola lo stato in base a OGGI.
+ * Le righe storiche che sono 'attive' secondo decorrenza ma 'archiviato' forzato restano tali. */
+function ricalcolaStatoListini() {
+  [...LISTINI_COSTO_VERSIONI, ...LISTINI_VENDITA_VERSIONI].forEach(l => {
+    l.stato = statoListino(l);
+  });
+}
 
 /* ---------------------------------------------------------- *
  * 5. Giacenze, e-commerce, utenti, differenziali
@@ -1832,34 +1997,48 @@ function gotoDiff() {
 }
 
 /* ============================================================
-   10. SEZIONE LISTINI E TARIFFE (tre livelli)
+   10. SEZIONE LISTINI E TARIFFE — 4 sezioni
    ============================================================ */
+
+// Stato corrente della UI
 let lvVettoreCorrente = 'Corriere A';
+let lvMandanteCorrente = MANDANTI[0];
+let lvStorMandanteCorrente = MANDANTI[0];
 
 function initListini() {
-  // per i Mandanti/Sottocontratti mostro SOLO il tab "Listini di vendita"
-  // (i listini vettore e i listini di costo interni sono informazioni di gestione interna)
+  // 1. auto-arciviazione in base a OGGI
+  ricalcolaStatoListini();
+
+  // 2. permessi: il Mandante vede solo "Listino di vendita" del proprio mandante
   const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
   if (isMandante) {
-    $$('#listini-tabs .tab-btn').forEach(b => { if (b.dataset.tab !== 'lvend') b.style.display = 'none'; });
-    // nascondi anche i pane non pertinenti
-    ['#pane-lv', '#pane-lc', '#pane-lstor'].forEach(sel => { const p = $(sel); if (p) p.style.display = 'none'; });
-    // attiva esplicitamente il pane "lvend" e marca il tab come attivo
-    const tab = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lvend');
+    $$('#listini-tabs .tab-btn').forEach(b => {
+      if (!['lv', 'lv-stor'].includes(b.dataset.tab)) b.style.display = 'none';
+    });
+    ['#pane-lc', '#pane-lc-stor', '#pane-lv-stor'].forEach(sel => { const p = $(sel); if (p) p.style.display = 'none'; });
+    const tab = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lv');
     if (tab) tab.classList.add('active');
-    const pane = $('#pane-lvend'); if (pane) pane.classList.add('active');
+    const pane = $('#pane-lv'); if (pane) pane.classList.add('active');
+    // forza il mandante selezionato a quello dell'utente
+    lvMandanteCorrente = currentUser.mandante;
+    lvStorMandanteCorrente = currentUser.mandante;
   }
 
-  // tab principali
+  // 3. tab principali
   $$('#listini-tabs .tab-btn').forEach(b => b.addEventListener('click', () => {
     $$('#listini-tabs .tab-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     $$('#view-listini .tab-pane').forEach(p => p.classList.remove('active'));
     $('#pane-' + b.dataset.tab).classList.add('active');
+    // rinfresca la sezione appena aperta
+    if (b.dataset.tab === 'lc') renderListinoCostoAttivo();
+    else if (b.dataset.tab === 'lc-stor') renderListinoCostoStorico();
+    else if (b.dataset.tab === 'lv') renderListinoVenditaAttivo();
+    else if (b.dataset.tab === 'lv-stor') renderListinoVenditaStorico();
   }));
 
-  // sotto-tab per vettore (listini vettori terzi)
-  const vt = $('#lv-vettori-tabs');
+  // 4. sotto-tab vettori (per la sezione "Costo")
+  const vt = $('#lc-vettori-tabs');
   Object.keys(LISTINI_VETTORE).forEach((nome, i) => {
     const b = el('button', { class: 'tab-btn' + (i === 0 ? ' active' : ''), onclick: () => {
       $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
@@ -1869,15 +2048,387 @@ function initListini() {
     } }, esc(nome));
     vt.appendChild(b);
   });
+
+  // 5. select mandante (listino di vendita attivo)
+  const selM = $('#lv-mandante-sel');
+  if (selM) {
+    if (isMandante) {
+      selM.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
+      selM.disabled = true;
+    } else {
+      selM.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
+      selM.value = lvMandanteCorrente;
+      selM.addEventListener('change', () => { lvMandanteCorrente = selM.value; renderListinoVenditaAttivo(); });
+    }
+  }
+
+  // 6. select mandante (storico vendita)
+  const selS = $('#lv-stor-mandante-sel');
+  if (selS) {
+    if (isMandante) {
+      selS.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
+      selS.disabled = true;
+    } else {
+      selS.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
+      selS.value = lvStorMandanteCorrente;
+      selS.addEventListener('change', () => { lvStorMandanteCorrente = selS.value; renderListinoVenditaStorico(); });
+    }
+  }
+
+  // 7. render iniziale di tutte le 4 sezioni
+  renderListinoCostoAttivo();
+  renderListinoCostoStorico();
+  renderListinoVenditaAttivo();
+  renderListinoVenditaStorico();
   renderListinoVettore();
-  renderListinoCosto();
-  renderListinoVendita();
-  initStoricita();
 }
 
+/* ---- Header con versione attiva, decorrenza, azioni ---- */
+function buildListinoHeader(l, azioni) {
+  const head = el('div', { class: 'listino-header' });
+  const stato = l.stato;
+  const statoBadge = stato === 'attivo' ? badge('in vigore', 'ok')
+    : stato === 'futuro' ? badge('futuro — coesiste con l\'attuale', 'accent')
+    : badge('archiviato', '');
+  head.innerHTML = `
+    <div class="lh-left">
+      <div class="lh-title"><strong>${esc(l.label)}</strong> ${statoBadge}</div>
+      <div class="lh-meta tiny">
+        <span>📅 Decorrenza: <span class="mono">${esc(l.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(l.decorrenzaFine || '—')}</span></span>
+        <span>· ID: <span class="mono">${esc(l.id)}</span></span>
+        <span>· Creato il <span class="mono">${esc(l.creatoIl || '—')}</span> da <strong>${esc(l.creatoDa || '—')}</strong></span>
+        ${l.agente ? `<span>· Agente: <strong>${esc(l.agente)}</strong> (provvigione ${l.provvigionePct}%)</span>` : ''}
+      </div>
+      ${l.note ? `<div class="lh-note small">${esc(l.note)}</div>` : ''}
+    </div>
+    <div class="lh-actions">${azioni}</div>`;
+  return head;
+}
+
+function btnAction(label, cls, onClick) {
+  return el('button', { class: `btn btn-sm ${cls || ''}`, onclick: onClick }, label);
+}
+
+/* ============================================================
+   10a. SEZIONE 1 — LISTINO DI COSTO (attivo)
+   ============================================================ */
+function renderListinoCostoAttivo() {
+  const l = listinoCostoAttivo();
+  const head = $('#lc-header');
+  if (!l) {
+    head.innerHTML = `<div class="warn-box">⚠️ Nessun listino di costo <strong>attivo</strong> al momento (data odierna: ${OGGI}). Vai allo <strong>Storico listino di costo</strong> per crearne uno nuovo duplicando un listino esistente.</div>`;
+    $('#dt-listino-costo').innerHTML = '';
+    return;
+  }
+  head.innerHTML = '';
+  head.appendChild(buildListinoHeader(l, `
+    <button class="btn btn-sm btn-primary" id="lc-duplica">Duplica listino</button>
+    <button class="btn btn-sm" id="lc-importa">Importa CSV</button>
+    <button class="btn btn-sm" id="lc-storico">Vai allo storico →</button>
+  `));
+  $('#lc-duplica').addEventListener('click', () => openDuplicaListinoCosto(l));
+  $('#lc-importa').addEventListener('click', () => openImportCSV('costo', l));
+  $('#lc-storico').addEventListener('click', () => {
+    const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lc-stor');
+    if (t) t.click();
+  });
+
+  renderDataTable({
+    mount: '#dt-listino-costo', title: `Righe listino di costo — ${l.label}`, noun: 'righe di listino',
+    data: () => l.righe, rowKey: r => r.vettore + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
+    onRowClick: r => {
+      openModal({ title: 'Origine listino di costo', body: `
+        <dl class="confirm-summary">
+          <dt>Vettore</dt><dd>${esc(r.vettore)}</dd>
+          <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
+          <dt>Costo interno</dt><dd><strong>${fmtEur(r.costo)}</strong></dd>
+          ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)} <span class="tiny">(+3% oneri interni)</span></dd>` : ''}
+          <dt>Origine</dt><dd>${esc(r.origine)}</dd>
+          ${r.personalizzazione ? `<dt>Personalizzazione</dt><dd>${r.personalizzazione.tipo === 'perc' ? `Ricarico +${r.personalizzazione.valore}%` : `Sovrascrittura assoluta: ${fmtEur(r.personalizzazione.valore)}`} <span class="tiny">(applicata il ${esc(r.personalizzazione.applicataIl || '—')})</span></dd>` : ''}
+        </dl>`, actions: [{ label: 'Chiudi' }] });
+    },
+    columns: [
+      { key: 'vettore', label: 'Vettore', ftype: 'enum' },
+      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
+      { key: 'zona', label: 'Zona', ftype: 'enum' },
+      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.costo)}</strong>${r.personalizzazione ? ' ' + badge('personalizzata', 'warn') : ''}` },
+      { key: 'costoVettore', label: 'Listino vettore', ftype: 'number', numeric: true, render: r => r.costoVettore ? fmtEur(r.costoVettore) : '<span class="muted">—</span>' },
+      { key: 'delta', label: 'Δ%', ftype: 'number', numeric: true, sortable: false,
+        render: r => {
+          if (!r.costoVettore) return '<span class="muted">—</span>';
+          const delta = ((r.costo - r.costoVettore) / r.costoVettore) * 100;
+          return `<span style="color:${delta > 0 ? 'var(--warn)' : 'var(--ok)'}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>`;
+        } },
+      { key: 'origine', label: 'Origine / personalizzazione', ftype: 'text', sortable: false, render: r => `<span class="tiny">${esc(r.origine)}${r.personalizzazione ? `<br><strong>Personalizzata:</strong> ${r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore)}` : ''}</span>` }
+    ]
+  });
+}
+
+function listinoCostoAttivo() {
+  return LISTINI_COSTO_VERSIONI.find(l => l.stato === 'attivo') || null;
+}
+
+/* ============================================================
+   10b. SEZIONE 2 — STORICO LISTINO DI COSTO
+   ============================================================ */
+function renderListinoCostoStorico() {
+  // In "storico" mostriamo TUTTE le versioni di listino di costo,
+  // ordinate per decorrenzaInizio discendente (più recente prima).
+  // Le versioni attive sono "il corrente" — le mostriamo in cima con badge "in vigore".
+  const head = $('#lc-stor-header');
+  head.innerHTML = '';
+  const tit = el('div');
+  tit.innerHTML = `<div class="lh-title"><strong>Storico listini di costo</strong></div>
+    <div class="lh-meta tiny">Tutte le versioni dei listini di costo interni, dal più recente al più vecchio. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`;
+  head.appendChild(tit);
+
+  // costruiamo una vista "una riga per versione" + sotto-tabella righe quando si apre il dettaglio
+  const versioni = [...LISTINI_COSTO_VERSIONI].sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
+  const dataRows = versioni.map(v => ({
+    versione: v,
+    id: v.id, label: v.label, decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
+    stato: v.stato, nRighe: v.righe.length, note: v.note,
+    creatoIl: v.creatoIl, creatoDa: v.creatoDa
+  }));
+
+  renderDataTable({
+    mount: '#dt-listino-costo-stor', title: 'Tutte le versioni del listino di costo', noun: 'versioni di listino',
+    data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
+    onRowClick: r => openDettaglioVersioneCosto(r.versione),
+    rowActions: (r) => {
+      const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
+      box.appendChild(btnAction('Visualizza', '', () => openDettaglioVersioneCosto(r.versione)));
+      box.appendChild(btnAction('Duplica', 'btn-primary', () => openDuplicaListinoCosto(r.versione)));
+      box.appendChild(btnAction('Esporta CSV', '', () => esportaListinoCSV(r.versione, 'costo')));
+      if (r.versione.stato !== 'archiviato') {
+        box.appendChild(btnAction('Archivia', 'btn-danger', () => archiviaListino('costo', r.versione)));
+      }
+      return box;
+    },
+    bulkActions: [
+      { label: 'Duplica selezione', cls: 'btn-primary', run: (sel, api) => {
+          if (!sel.rows.length) { toast('Seleziona almeno una versione', 'warn'); return; }
+          if (sel.rows.length > 1) { toast('La duplicazione multipla non è supportata: duplica una versione alla volta', 'warn'); return; }
+          openDuplicaListinoCosto(sel.rows[0].versione);
+        } }
+    ],
+    columns: [
+      { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>` },
+      { key: 'label', label: 'Etichetta', ftype: 'text', render: r => `<strong>${esc(r.label)}</strong>` },
+      { key: 'decorrenza', label: 'Decorrenza', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.decorrenza)}</span>` },
+      { key: 'stato', label: 'Stato', ftype: 'enum', statusOrder: ['attivo', 'futuro', 'archiviato'],
+        render: r => r.stato === 'attivo' ? badge('in vigore', 'ok') : r.stato === 'futuro' ? badge('futuro', 'accent') : badge('archiviato', '') },
+      { key: 'nRighe', label: 'Righe', ftype: 'number', numeric: true },
+      { key: 'creatoIl', label: 'Creato il', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.creatoIl || '—')}</span> <span class="tiny">da <strong>${esc(r.creatoDa || '—')}</strong></span>` },
+      { key: 'note', label: 'Note', ftype: 'text', render: r => `<span class="tiny">${esc(r.note || '—')}</span>` }
+    ]
+  });
+}
+
+function openDettaglioVersioneCosto(v) {
+  const html = `
+    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
+    <div style="max-height:60vh;overflow-y:auto">
+    <table class="dt">
+      <thead><tr>
+        <th>Vettore</th><th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Listino vettore</th><th>Personalizzata</th>
+      </tr></thead>
+      <tbody>${v.righe.map(r => `<tr>
+        <td>${esc(r.vettore)}</td>
+        <td>${esc(r.scaglione)}</td>
+        <td>${esc(r.zona)}</td>
+        <td class="num"><strong>${fmtEur(r.costo)}</strong></td>
+        <td class="num">${r.costoVettore ? fmtEur(r.costoVettore) : '—'}</td>
+        <td>${r.personalizzazione ? badge(r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore), 'warn') : '<span class="muted tiny">no</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div class="tiny" style="margin-top:8px">Creato il <span class="mono">${esc(v.creatoIl || '—')}</span> da <strong>${esc(v.creatoDa || '—')}</strong>. ${v.note ? 'Note: ' + esc(v.note) : ''}</div>`;
+  openModal({
+    title: `Dettaglio versione listino di costo — ${v.label}`,
+    body: html, size: 'wide',
+    actions: [
+      { label: 'Chiudi' },
+      { label: 'Duplica questa versione', cls: 'btn-primary', onClick: (b, close) => { close(); openDuplicaListinoCosto(v); } },
+      { label: 'Esporta CSV', onClick: () => esportaListinoCSV(v, 'costo') }
+    ]
+  });
+}
+
+function archiviaListino(tipo, v) {
+  confirmBulk({
+    azione: `Archiviazione manuale del listino ${v.label}`,
+    count: 1, mode: 'rows',
+    dettagli: `Una volta archiviato, il listino non sarà più "in vigore" ma resterà consultabile nello storico. Se era l'unico attivo per il suo scope, non avverrà alcuna sostituzione automatica.`,
+    onConfirm: () => {
+      v.stato = 'archiviato';
+      ricalcolaStatoListini();
+      renderListinoCostoAttivo(); renderListinoCostoStorico();
+      renderListinoVenditaAttivo(); renderListinoVenditaStorico();
+      toast(`Listino ${v.id} archiviato`, 'ok');
+    }
+  });
+}
+
+/* ============================================================
+   10c. SEZIONE 3 — LISTINO DI VENDITA (attivo, per mandante)
+   ============================================================ */
+function renderListinoVenditaAttivo() {
+  const head = $('#lv-header');
+  if (!head) return;
+  head.innerHTML = '';
+  // cerco il listino attivo per il mandante selezionato
+  const l = LISTINI_VENDITA_VERSIONI.find(x => x.mandante === lvMandanteCorrente && x.stato === 'attivo');
+  if (!l) {
+    head.appendChild(el('div', { class: 'warn-box' },
+      `⚠️ Nessun listino di vendita <strong>attivo</strong> per il mandante <strong>${esc(lvMandanteCorrente)}</strong>. Vai allo <strong>Storico</strong> e duplica una versione esistente.`));
+    $('#dt-listino-vendita').innerHTML = '';
+    return;
+  }
+  head.appendChild(buildListinoHeader(l, `
+    <button class="btn btn-sm btn-primary" id="lv-duplica">Duplica listino</button>
+    <button class="btn btn-sm" id="lv-importa">Importa CSV</button>
+    <button class="btn btn-sm" id="lv-storico">Vai allo storico →</button>
+  `));
+  $('#lv-duplica').addEventListener('click', () => openDuplicaListinoVendita(l));
+  $('#lv-importa').addEventListener('click', () => openImportCSV('vendita', l));
+  $('#lv-storico').addEventListener('click', () => {
+    const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lv-stor');
+    if (t) t.click();
+  });
+
+  const perdita = l.righe.filter(r => r.vendita < r.costo).length;
+  if (perdita) {
+    const box = el('div', { class: 'err-box' });
+    box.innerHTML = `⛔ <strong>${perdita} righe in perdita</strong> (vendita &lt; costo). I listini di vendita non dovrebbero mai essere sotto il listino di costo: correggere o duplicare con valori aggiornati. <a href="#" id="lv-vai-storico">Vai allo storico per duplicare</a>.`;
+    head.appendChild(box);
+    setTimeout(() => {
+      const a = $('#lv-vai-storico');
+      if (a) a.addEventListener('click', e => { e.preventDefault(); const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lv-stor'); if (t) t.click(); });
+    }, 0);
+  }
+
+  renderDataTable({
+    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
+    data: () => l.righe, rowKey: r => r.vettoreRif + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
+    rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
+    columns: [
+      { key: 'vettoreRif', label: 'Vettore di rif.', ftype: 'enum' },
+      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
+      { key: 'zona', label: 'Zona', ftype: 'enum' },
+      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
+      { key: 'vendita', label: 'Prezzo di vendita', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.vendita)}</strong>` },
+      { key: 'margine', label: 'Margine', ftype: 'number', numeric: true, render: r => `<span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span>` },
+      { key: 'alert', label: 'Controllo', sortable: false, render: r => {
+          if (r.costoVettore && r.vendita < r.costoVettore)
+            return `<span class="badge err" title="Il prezzo di vendita è inferiore perfino al listino del vettore terzo di origine">⛔ sotto costo vettore (${fmtEur(r.costoVettore)})</span>`;
+          if (r.vendita < r.costo)
+            return `<span class="badge warn">vendita sotto il costo interno</span>`;
+          return `<span class="badge ok">ok</span>`;
+        } },
+      { key: 'personalizzazione', label: 'Personalizzazione', ftype: 'text', sortable: false, render: r => r.personalizzazione ? badge(r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore), 'warn') : '<span class="muted tiny">no</span>' }
+    ]
+  });
+}
+
+/* ============================================================
+   10d. SEZIONE 4 — STORICO LISTINO DI VENDITA (per mandante)
+   ============================================================ */
+function renderListinoVenditaStorico() {
+  const head = $('#lv-stor-header');
+  head.innerHTML = '';
+  head.appendChild(el('div', {}, `
+    <div class="lh-title"><strong>Storico listini di vendita</strong></div>
+    <div class="lh-meta tiny">Tutte le versioni di listino del mandante selezionato, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`));
+
+  const versioni = LISTINI_VENDITA_VERSIONI
+    .filter(v => v.mandante === lvStorMandanteCorrente)
+    .sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
+  const dataRows = versioni.map(v => ({
+    versione: v,
+    id: v.id, label: v.label, mandante: v.mandante,
+    decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
+    stato: v.stato, nRighe: v.righe.length, nPerdite: v.righe.filter(r => r.vendita < r.costo).length,
+    agente: v.agente, provvigionePct: v.provvigionePct, scontoPct: v.scontoPct,
+    note: v.note, creatoIl: v.creatoIl, creatoDa: v.creatoDa
+  }));
+
+  renderDataTable({
+    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita per ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
+    data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
+    onRowClick: r => openDettaglioVersioneVendita(r.versione),
+    rowActions: (r) => {
+      const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
+      box.appendChild(btnAction('Visualizza', '', () => openDettaglioVersioneVendita(r.versione)));
+      box.appendChild(btnAction('Duplica', 'btn-primary', () => openDuplicaListinoVendita(r.versione)));
+      box.appendChild(btnAction('Esporta CSV', '', () => esportaListinoCSV(r.versione, 'vendita')));
+      if (r.versione.stato !== 'archiviato') {
+        box.appendChild(btnAction('Archivia', 'btn-danger', () => archiviaListino('vendita', r.versione)));
+      }
+      return box;
+    },
+    bulkActions: [
+      { label: 'Duplica selezione', cls: 'btn-primary', run: (sel, api) => {
+          if (!sel.rows.length) { toast('Seleziona almeno una versione', 'warn'); return; }
+          if (sel.rows.length > 1) { toast('La duplicazione multipla non è supportata: duplica una versione alla volta', 'warn'); return; }
+          openDuplicaListinoVendita(sel.rows[0].versione);
+        } }
+    ],
+    columns: [
+      { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>` },
+      { key: 'label', label: 'Etichetta', ftype: 'text', render: r => `<strong>${esc(r.label)}</strong>` },
+      { key: 'decorrenza', label: 'Decorrenza', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.decorrenza)}</span>` },
+      { key: 'stato', label: 'Stato', ftype: 'enum', statusOrder: ['attivo', 'futuro', 'archiviato'],
+        render: r => r.stato === 'attivo' ? badge('in vigore', 'ok') : r.stato === 'futuro' ? badge('futuro', 'accent') : badge('archiviato', '') },
+      { key: 'nRighe', label: 'Righe', ftype: 'number', numeric: true },
+      { key: 'nPerdite', label: 'In perdita', ftype: 'number', numeric: true, render: r => r.nPerdite ? `<strong style="color:var(--err)">${r.nPerdite}</strong>` : '0' },
+      { key: 'agente', label: 'Agente / provv.', ftype: 'text', render: r => `<span class="tiny">${esc(r.agente || '—')} (${r.provvigionePct || 0}%)</span>` },
+      { key: 'creatoIl', label: 'Creato il', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.creatoIl || '—')}</span> <span class="tiny">da <strong>${esc(r.creatoDa || '—')}</strong></span>` },
+      { key: 'note', label: 'Note', ftype: 'text', render: r => `<span class="tiny">${esc(r.note || '—')}</span>` }
+    ]
+  });
+}
+
+function openDettaglioVersioneVendita(v) {
+  const perdita = v.righe.filter(r => r.vendita < r.costo);
+  const html = `
+    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — mandante <strong>${esc(v.mandante)}</strong> — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
+    <p class="tiny">Agente: <strong>${esc(v.agente)}</strong> (provvigione ${v.provvigionePct}%) · Sconto tariffa: ${v.scontoPct || 0}%${v.note ? ' · Note: ' + esc(v.note) : ''}</p>
+    ${perdita.length ? `<div class="err-box">⛔ <strong>${perdita.length} righe in perdita</strong> in questa versione.</div>` : ''}
+    <div style="max-height:55vh;overflow-y:auto;margin-top:8px">
+    <table class="dt">
+      <thead><tr>
+        <th>Vettore rif.</th><th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Vendita</th><th class="num">Margine</th><th>Personalizzata</th><th>Stato</th>
+      </tr></thead>
+      <tbody>${v.righe.map(r => `<tr${r.vendita < r.costo ? ' class="row-danger"' : ''}>
+        <td>${esc(r.vettoreRif)}</td>
+        <td>${esc(r.scaglione)}</td>
+        <td>${esc(r.zona)}</td>
+        <td class="num">${fmtEur(r.costo)}</td>
+        <td class="num"><strong>${fmtEur(r.vendita)}</strong></td>
+        <td class="num" style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'}">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</td>
+        <td>${r.personalizzazione ? badge(r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore), 'warn') : '<span class="muted tiny">no</span>'}</td>
+        <td>${r.vendita < r.costo ? (r.costoVettore && r.vendita < r.costoVettore ? '<span class="badge err">sotto vettore</span>' : '<span class="badge warn">sotto costo</span>') : '<span class="badge ok">ok</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div class="tiny" style="margin-top:8px">Creato il <span class="mono">${esc(v.creatoIl || '—')}</span> da <strong>${esc(v.creatoDa || '—')}</strong>.</div>`;
+  openModal({
+    title: `Dettaglio versione listino di vendita — ${v.label}`,
+    body: html, size: 'wide',
+    actions: [
+      { label: 'Chiudi' },
+      { label: 'Duplica questa versione', cls: 'btn-primary', onClick: (b, close) => { close(); openDuplicaListinoVendita(v); } },
+      { label: 'Esporta CSV', onClick: () => esportaListinoCSV(v, 'vendita') }
+    ]
+  });
+}
+
+/* ============================================================
+   10e. Listino vettore (consultazione, dentro la sezione Costo)
+   ============================================================ */
 function renderListinoVettore() {
   const lv = LISTINI_VETTORE[lvVettoreCorrente];
-  $('#lv-meta').innerHTML = `
+  if (!lv) return;
+  $('#lc-vettori-meta').innerHTML = `
     <span>📄 <strong>${esc(lv.nota)}</strong></span>
     <span>Versione: <span class="mono">${lv.versione}</span></span>
     <span class="tiny">Dato di partenza esterno, non negoziabile da CT Solution: base per i listini di costo interni.</span>`;
@@ -1894,102 +2445,636 @@ function renderListinoVettore() {
   });
 }
 
-function renderListinoCosto() {
-  $('#lc-meta').innerHTML = `<span class="tiny">I listini di costo derivano dal listino del vettore terzo (con oneri interni) oppure sono <strong>calcolati</strong> per le linee proprie (padroncini). Cliccando una riga derivata si vede l'origine dell'import.</span>`;
-  renderDataTable({
-    mount: '#dt-listino-costo', title: 'Listini di costo interni CT Solution', noun: 'righe di listino',
-    data: () => LISTINI_COSTO, rowKey: r => r.vettore + '|' + r.scaglione, pageSize: 10, selectable: true,
-    onRowClick: r => {
-      openModal({ title: 'Origine listino di costo', body: `
-        <dl class="confirm-summary">
-          <dt>Vettore</dt><dd>${esc(r.vettore)}</dd>
-          <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
-          <dt>Costo interno</dt><dd><strong>${fmtEur(r.costo)}</strong></dd>
-          ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)} <span class="tiny">(+3% oneri interni)</span></dd>` : ''}
-          <dt>Origine</dt><dd>${esc(r.origine)}</dd>
-        </dl>`, actions: [{ label: 'Chiudi' }] });
-    },
-    columns: [
-      { key: 'vettore', label: 'Vettore', ftype: 'enum' },
-      { key: 'tipo', label: 'Tipo', ftype: 'enum', render: r => badge(r.tipo, r.tipo.startsWith('Derivato') ? 'info' : 'brand') },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
-      { key: 'origine', label: 'Origine / import', ftype: 'text', render: r => `<span class="tiny">${esc(r.origine)}</span>` }
-    ],
-    bulkActions: [
-      { label: 'Duplica listino…', cls: 'btn-primary', run: (sel, api) => openDuplicaListino(sel, api) }
+/* ============================================================
+   10f. Duplicazione (costo / vendita)
+   ============================================================ */
+
+/* ---- Helper: validazione sotto-costo per la vendita ----
+ * Restituisce { ok, problemi:[{ix, riga, tipo, msg}] }
+ *   tipo: 'sotto_costo' | 'sotto_vettore' | 'no_costo_rif'
+ */
+function validaRigheVendita(righe) {
+  const problemi = [];
+  righe.forEach((r, ix) => {
+    if (!r.costo || r.costo <= 0) {
+      problemi.push({ ix, riga: r, tipo: 'no_costo_rif', msg: 'riga senza costo interno di riferimento' });
+      return;
+    }
+    if (r.costoVettore && r.vendita < r.costoVettore) {
+      problemi.push({ ix, riga: r, tipo: 'sotto_vettore', msg: `vendita ${fmtEur(r.vendita)} < listino vettore ${fmtEur(r.costoVettore)}` });
+    } else if (r.vendita < r.costo) {
+      problemi.push({ ix, riga: r, tipo: 'sotto_costo', msg: `vendita ${fmtEur(r.vendita)} < costo interno ${fmtEur(r.costo)}` });
+    }
+  });
+  return { ok: problemi.length === 0, problemi };
+}
+
+function openDuplicaListinoCosto(src) {
+  openDuplicaModal({
+    tipo: 'costo',
+    src,
+    campiIntestazione: [
+      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: `${src.label} (copia)` },
+      { key: 'decorrenzaInizio', label: 'Decorrenza inizio', type: 'date', required: true, default: '2027-01-01' },
+      { key: 'decorrenzaFine', label: 'Decorrenza fine', type: 'date', default: '2027-12-31' },
+      { key: 'note', label: 'Note', type: 'text', default: 'Duplicato da ' + src.id }
     ]
   });
 }
 
-function openDuplicaListino(sel, api) {
-  const b = el('div');
-  b.innerHTML = `<p class="small muted">Crea un nuovo listino a partire dalle <strong>${sel.rows.length || 'righe del filtro corrente (' + api.getFilteredRows().length + ')'}</strong> righe selezionate. Disponibile anche a partire da un listino di costo derivato da vettore terzo.</p>
-    <div class="form-row"><label>Metodo</label>
-      <select id="dup-m">
-        <option value="perc">Ricarico percentuale sul costo</option>
-        <option value="abs">Sovrascrittura assoluta (prezzo fisso)</option>
-      </select></div>
-    <div class="form-row"><label>Valore</label><input type="text" id="dup-v" value="18" placeholder="es. 18 (%) oppure 9.90 (€)"></div>
-    <div class="form-row"><label>Destinazione</label><select id="dup-d">${MANDANTI.map(m => `<option>${m}</option>`).join('')}</select></div>`;
-  openModal({ title: 'Duplica listino', body: b, actions: [
-    { label: 'Annulla' },
-    { label: 'Crea listino', cls: 'btn-primary', onClick: bd => {
-        const rows = sel.rows.length ? sel.rows : api.getFilteredRows();
-        const m = $('#dup-m', bd).value, v = parseFloat($('#dup-v', bd).value) || 0, dest = $('#dup-d', bd).value;
-        rows.forEach(r => {
-          const vendita = m === 'perc' ? +(r.costo * (1 + v / 100)).toFixed(2) : v;
-          LISTINI_VENDITA.push({ mandante: dest, vettoreRif: r.vettore, scaglione: r.scaglione, zona: r.zona, costo: r.costo, costoVettore: r.costoVettore, vendita, margine: +(vendita - r.costo).toFixed(2) });
-        });
-        renderListinoVendita();
-        toast(`Listino duplicato per ${dest}: ${rows.length} righe (${m === 'perc' ? '+' + v + '%' : fmtEur(v) + ' fisso'})`, 'ok');
-      } }
-  ] });
+function openDuplicaListinoVendita(src) {
+  openDuplicaModal({
+    tipo: 'vendita',
+    src,
+    campiIntestazione: [
+      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: `${src.mandante} — duplicato` },
+      { key: 'decorrenzaInizio', label: 'Decorrenza inizio', type: 'date', required: true, default: '2027-01-01' },
+      { key: 'decorrenzaFine', label: 'Decorrenza fine', type: 'date', default: '2027-12-31' },
+      { key: 'agente', label: 'Agente di riferimento', type: 'text', default: src.agente || '' },
+      { key: 'provvigionePct', label: 'Provvigione agente (%)', type: 'number', default: src.provvigionePct || 0 },
+      { key: 'scontoPct', label: 'Sconto sulla tariffa totale (%)', type: 'number', default: src.scontoPct || 0 },
+      { key: 'note', label: 'Note', type: 'text', default: 'Duplicato da ' + src.id }
+    ]
+  });
 }
 
-function renderListinoVendita() {
-  // il mandante vede solo le proprie righe di vendita
-  const isMandante = currentUser?.livello === 'Mandante/Sottocontratto';
-  const dataSrc = isMandante ? LISTINI_VENDITA.filter(r => r.mandante === currentUser.mandante) : LISTINI_VENDITA;
-  renderDataTable({
-    mount: '#dt-listino-vendita', title: 'Listini di vendita per mandante', noun: 'righe di listino',
-    data: () => dataSrc, rowKey: r => r.mandante + '|' + r.vettoreRif + '|' + r.scaglione + '|' + r.vendita, pageSize: 10,
-    rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
-    columns: [
-      { key: 'mandante', label: 'Mandante', ftype: 'enum' },
-      { key: 'vettoreRif', label: 'Vettore di rif.', ftype: 'enum' },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
-      { key: 'vendita', label: 'Prezzo di vendita', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.vendita)}</strong>` },
-      { key: 'margine', label: 'Margine', ftype: 'number', numeric: true, render: r => `<span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span>` },
-      { key: 'alert', label: 'Controllo', sortable: false,
-        render: r => {
-          if (r.costoVettore && r.vendita < r.costoVettore)
-            return `<span class="badge err" title="Il prezzo di vendita è inferiore perfino al listino del vettore terzo di origine">⛔ vendita sotto il costo del VETTORE (${fmtEur(r.costoVettore)}), non solo sotto il listino interno</span>`;
-          if (r.vendita < r.costo)
-            return `<span class="badge warn">vendita sotto il costo interno</span>`;
-          return `<span class="badge ok">ok</span>`;
+function openDuplicaModal({ tipo, src, campiIntestazione }) {
+  const isVendita = tipo === 'vendita';
+  const b = el('div');
+  b.innerHTML = `
+    <p class="small muted">Stai duplicando <strong>${esc(src.label)}</strong> (${esc(src.id)}). Scegli la modalità di personalizzazione: le modifiche vengono applicate a una copia che sarà salvata come <strong>nuova versione</strong>${isVendita ? ' del listino di vendita per <strong>' + esc(src.mandante) + '</strong>' : ' del listino di costo interno'}.</p>
+    <h4 style="margin-top:10px">Intestazione nuovo listino</h4>
+    <div id="dup-head-fields"></div>
+    <h4 style="margin-top:14px">Modalità di personalizzazione</h4>
+    <div class="form-row"><label>Modalità</label>
+      <select id="dup-modo">
+        <option value="perc">Ricarico percentuale su tutte le voci (es. +10%)</option>
+        <option value="abs">Sovrascrittura assoluta per singola voce (editabile riga per riga)</option>
+      </select>
+    </div>
+    <div id="dup-perc" class="form-row"><label>Percentuale di ricarico (%)</label><input type="number" id="dup-perc-val" value="10" step="0.1"></div>
+    <h4 style="margin-top:14px">Anteprima righe (${src.righe.length})</h4>
+    <div id="dup-warn" class="err-box" style="display:none"></div>
+    <div id="dup-preview" style="max-height:42vh;overflow-y:auto"></div>`;
+  const fields = $('#dup-head-fields', b);
+  campiIntestazione.forEach(f => {
+    const row = el('div', { class: 'form-row' });
+    row.appendChild(el('label', {}, f.label + (f.required ? ' *' : '')));
+    const inp = el('input', { type: f.type, id: 'dup-h-' + f.key, value: f.default ?? '' });
+    if (f.type === 'number') inp.step = '0.01';
+    row.appendChild(inp);
+    fields.appendChild(row);
+  });
+
+  // campi dinamici editabili per modalità 'abs'
+  let editabili = src.righe.map((r, ix) => ({ ...r, _editVal: isVendita ? r.vendita : r.costo, _ix: ix }));
+
+  const renderPreview = () => {
+    const modo = $('#dup-modo', b).value;
+    const perc = parseFloat($('#dup-perc-val', b).value) || 0;
+    editabili = src.righe.map((r, ix) => {
+      const editVal = modo === 'perc' ? +(r[isVendita ? 'vendita' : 'costo'] * (1 + perc / 100)).toFixed(2) : (editabili[ix]?._editVal ?? r[isVendita ? 'vendita' : 'costo']);
+      return { ...r, _editVal: editVal, _ix: ix };
+    });
+    // preview
+    const isAbs = modo === 'abs';
+    const table = el('table', { class: 'dt' });
+    table.innerHTML = `<thead><tr>
+      <th>${isVendita ? 'Vettore' : 'Vettore'}</th>
+      <th>Scaglione</th>
+      <th>Zona</th>
+      <th class="num">Costo</th>
+      <th class="num">${isVendita ? 'Vendita attuale' : 'Costo attuale'}</th>
+      <th class="num">${isVendita ? 'Nuova vendita' : 'Nuovo costo'}</th>
+      <th class="num">Margine</th>
+      <th>Stato</th>
+    </tr></thead>`;
+    const tb = el('tbody');
+    editabili.forEach((r, i) => {
+      const tr = el('tr', { class: r._editVal < r.costo ? 'row-danger' : '' });
+      tr.innerHTML = `<td>${esc(r[isVendita ? 'vettoreRif' : 'vettore'])}</td>
+        <td>${esc(r.scaglione)}</td>
+        <td>${esc(r.zona)}</td>
+        <td class="num">${fmtEur(r.costo)}</td>
+        <td class="num">${fmtEur(r[isVendita ? 'vendita' : 'costo'])}</td>
+        <td class="num">${isAbs ? `<input type="number" step="0.01" class="dt-colfilter" data-ix="${i}" value="${r._editVal}" style="width:90px;text-align:right">` : `<strong>${fmtEur(r._editVal)}</strong>`}</td>
+        <td class="num" style="color:${r._editVal - r.costo < 0 ? 'var(--err)' : 'var(--ok)'}">${(r._editVal - r.costo) >= 0 ? '+' : ''}${fmtEur(r._editVal - r.costo)}</td>
+        <td>${r._editVal < r.costo ? '<span class="badge err">sotto costo</span>' : '<span class="badge ok">ok</span>'}</td>`;
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    const prev = $('#dup-preview', b);
+    prev.innerHTML = ''; prev.appendChild(table);
+
+    // listener per editing riga per riga
+    if (isAbs) {
+      $$('input[data-ix]', prev).forEach(inp => {
+        inp.addEventListener('input', () => {
+          const ix = +inp.dataset.ix;
+          editabili[ix]._editVal = parseFloat(inp.value) || 0;
+          // ricalcolo classe + celle di margine/stato per la riga
+          const tr = inp.closest('tr');
+          if (editabili[ix]._editVal < editabili[ix].costo) tr.classList.add('row-danger'); else tr.classList.remove('row-danger');
+          const tds = tr.querySelectorAll('td');
+          const newMargine = editabili[ix]._editVal - editabili[ix].costo;
+          tds[6].textContent = (newMargine >= 0 ? '+' : '') + fmtEur(newMargine);
+          tds[6].style.color = newMargine < 0 ? 'var(--err)' : 'var(--ok)';
+          tds[7].innerHTML = editabili[ix]._editVal < editabili[ix].costo ? '<span class="badge err">sotto costo</span>' : '<span class="badge ok">ok</span>';
+          checkWarn();
+        });
+      });
+    }
+    checkWarn();
+  };
+
+  const checkWarn = () => {
+    if (!isVendita) { $('#dup-warn', b).style.display = 'none'; return; }
+    const problemi = editabili.filter(r => r._editVal < r.costo).map(r => ({ r, msg: r.costoVettore && r._editVal < r.costoVettore ? `sotto vettore (${fmtEur(r.costoVettore)})` : `sotto costo interno (${fmtEur(r.costo)})` }));
+    if (problemi.length) {
+      const html = `⛔ <strong>${problemi.length} righe in perdita</strong> (vendita &lt; costo). Per procedere è richiesta una conferma esplicita.<br><ul style="margin:6px 0 0 18px">${problemi.slice(0, 8).map(p => `<li><span class="mono">${esc(p.r.vettoreRif)} · ${esc(p.r.scaglione)}</span>: ${esc(p.msg)}</li>`).join('')}</ul>${problemi.length > 8 ? `<li class="tiny">… e altre ${problemi.length - 8}</li>` : ''}`;
+      $('#dup-warn', b).style.display = ''; $('#dup-warn', b).innerHTML = html;
+    } else {
+      $('#dup-warn', b).style.display = 'none';
+    }
+  };
+
+  openModal({
+    title: `Duplica listino ${tipo} — ${src.label}`, body: b, size: 'wide',
+    actions: [
+      { label: 'Annulla' },
+      { label: 'Crea nuovo listino', cls: 'btn-primary', keepOpen: true, onClick: (bd, close) => {
+          // raccolgo valori
+          const head = {};
+          for (const f of campiIntestazione) {
+            head[f.key] = $('#dup-h-' + f.key, bd).value.trim();
+          }
+          if (!head.etichetta) { toast('Inserisci un\'etichetta per il nuovo listino', 'err'); return false; }
+          if (!head.decorrenzaInizio) { toast('Inserisci la decorrenza di inizio', 'err'); return false; }
+          // validazione sotto-costo per la vendita
+          if (isVendita) {
+            const problemi = editabili.filter(r => r._editVal < r.costo);
+            if (problemi.length) {
+              // chiedo conferma esplicita
+              openModal({
+                title: 'Conferma righe in perdita',
+                body: `<p>Stai per creare un listino con <strong>${problemi.length} righe in perdita</strong> (vendita &lt; costo). Questo è tecnicamente possibile ma è una situazione anomala che richiede un'esplicita conferma.</p>
+                  <p class="small muted">Suggerimento: rivedi i valori o salva lo stesso per forzare la creazione (il sistema lo registrerà come un'anomalia consapevole).</p>`,
+                actions: [
+                  { label: 'Annulla' },
+                  { label: `Forza creazione con ${problemi.length} righe in perdita`, cls: 'btn-danger', onClick: () => {
+                      finalizeDuplicaCreaListino(tipo, src, head, editabili, true);
+                      close();
+                    } }
+                ]
+              });
+              return false; // non chiudere la modale di duplicazione
+            }
+          }
+          finalizeDuplicaCreaListino(tipo, src, head, editabili, false);
+          close();
+        } }
+    ]
+  });
+  setTimeout(() => {
+    $('#dup-modo', b).addEventListener('change', renderPreview);
+    $('#dup-perc-val', b).addEventListener('input', renderPreview);
+    renderPreview();
+  }, 0);
+}
+
+function finalizeDuplicaCreaListino(tipo, src, head, editabili, forzato) {
+  const isVendita = tipo === 'vendita';
+  const nuoveRighe = src.righe.map((r, i) => {
+    const e = editabili[i];
+    if (isVendita) {
+      return {
+        ...r,
+        vendita: e._editVal,
+        margine: +(e._editVal - r.costo).toFixed(2),
+        personalizzazione: { tipo: $('#dup-modo')?.value === 'perc' ? 'perc' : 'abs', valore: $('#dup-modo')?.value === 'perc' ? +(parseFloat($('#dup-perc-val')?.value) || 0) : e._editVal, applicataIl: nowStr().slice(0, 10) }
+      };
+    } else {
+      return {
+        ...r,
+        costo: e._editVal,
+        personalizzazione: { tipo: $('#dup-modo')?.value === 'perc' ? 'perc' : 'abs', valore: $('#dup-modo')?.value === 'perc' ? +(parseFloat($('#dup-perc-val')?.value) || 0) : e._editVal, applicataIl: nowStr().slice(0, 10) }
+      };
+    }
+  });
+
+  // determinazione stato
+  const decorrenzaInizio = head.decorrenzaInizio;
+  const decorrenzaFine = head.decorrenzaFine;
+  let stato = OGGI < decorrenzaInizio ? 'futuro' : (decorrenzaFine && OGGI > decorrenzaFine ? 'archiviato' : 'attivo');
+
+  // genera id
+  let id;
+  if (isVendita) {
+    const same = LISTINI_VENDITA_VERSIONI.filter(x => x.mandante === src.mandante);
+    const nn = same.length + 1;
+    const mTag = (src.mandante.split(' ')[0] || 'CLI').replace(/[^A-Za-z]/g, '').toUpperCase();
+    id = `LV-${mTag}-${String(nn).padStart(3, '0')}`;
+  } else {
+    const anno = decorrenzaInizio.slice(0, 4);
+    const same = LISTINI_COSTO_VERSIONI.filter(x => x.id.startsWith('LC-' + anno + '-'));
+    const nn = same.length + 1;
+    id = `LC-${anno}-${String(nn).padStart(2, '0')}`;
+  }
+
+  // auto-arciviazione: se la nuova versione entra in vigore e sostituisce un attivo
+  // per lo stesso scope, il precedente attivo viene marcato archiviato.
+  if (stato === 'attivo' || stato === 'futuro') {
+    const coll = isVendita ? LISTINI_VENDITA_VERSIONI : LISTINI_COSTO_VERSIONI;
+    coll.filter(x => x.stato === stato && (isVendita ? x.mandante === src.mandante : true) && x.id !== id)
+      .forEach(prev => {
+        // se la decorrenza del nuovo è <= di quella del prev attivo/futuro, il prev passa in archiviato
+        if (decorrenzaInizio <= (prev.decorrenzaInizio || '')) {
+          prev.stato = 'archiviato';
+          prev.decorrenzaFine = decorrenzaInizio;
+        }
+      });
+  }
+
+  const nuovo = {
+    id,
+    label: head.etichetta,
+    decorrenzaInizio, decorrenzaFine,
+    stato,
+    righe: nuoveRighe,
+    note: head.note || '',
+    creatoIl: nowStr(),
+    creatoDa: currentUser?.nome || 'Sistema'
+  };
+  if (isVendita) {
+    nuovo.mandante = src.mandante;
+    nuovo.agente = head.agente || src.agente;
+    nuovo.provvigionePct = parseFloat(head.provvigionePct) || 0;
+    nuovo.scontoPct = parseFloat(head.scontoPct) || 0;
+    LISTINI_VENDITA_VERSIONI.push(nuovo);
+  } else {
+    LISTINI_COSTO_VERSIONI.push(nuovo);
+  }
+  ricalcolaStatoListini();
+  // refresh di tutte le 4 viste
+  renderListinoCostoAttivo(); renderListinoCostoStorico();
+  renderListinoVenditaAttivo(); renderListinoVenditaStorico();
+  toast(`Creato listino ${id} (${stato})${forzato ? ' con righe in perdita confermate esplicitamente' : ''}`, forzato ? 'warn' : 'ok');
+}
+
+/* ============================================================
+   10g. Import CSV con mapping colonne
+   ============================================================ */
+
+function parseCSVText(text) {
+  // separatore: rileva ', ' o ';' scegliendo quello con più occorrenze nella prima riga
+  const firstLine = text.split(/\r?\n/)[0] || '';
+  const sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+  const rows = [];
+  let i = 0, field = '', row = [], inQuotes = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i += 2; continue; }
+      if (c === '"') { inQuotes = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQuotes = true; i++; continue; }
+    if (c === sep) { row.push(field); field = ''; i++; continue; }
+    if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = []; i++; continue;
+    }
+    field += c; i++;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function openImportCSV(tipo, listinoRiferimento) {
+  // campi attesi (per il mapping)
+  const campiAttesi = tipo === 'costo'
+    ? [
+        { key: 'vettore', label: 'Vettore', required: true, aliases: ['vettore', 'corriere', 'carrier'] },
+        { key: 'scaglione', label: 'Scaglione', required: true, aliases: ['scaglione', 'fascia', 'peso'] },
+        { key: 'zona', label: 'Zona', required: true, aliases: ['zona', 'area', 'destinazione'] },
+        { key: 'costo', label: 'Costo', required: true, aliases: ['costo', 'prezzo costo', 'cost', 'tariffa'] }
+      ]
+    : [
+        { key: 'vettoreRif', label: 'Vettore di riferimento', required: false, aliases: ['vettore', 'corriere', 'vettore rif'] },
+        { key: 'scaglione', label: 'Scaglione', required: true, aliases: ['scaglione', 'fascia', 'peso'] },
+        { key: 'zona', label: 'Zona', required: true, aliases: ['zona', 'area', 'destinazione'] },
+        { key: 'costo', label: 'Costo interno', required: false, aliases: ['costo', 'cost'] },
+        { key: 'vendita', label: 'Prezzo di vendita', required: true, aliases: ['vendita', 'prezzo vendita', 'price', 'tariffa vendita'] }
+      ];
+
+  const b = el('div');
+  b.innerHTML = `
+    <p class="small muted">Importazione di un listino da CSV. Le colonne del file vengono <strong>mappate</strong> sui campi del listino${tipo === 'costo' ? ' di costo' : ' di vendita per <strong>' + esc(listinoRiferimento.mandante) + '</strong>'}. L'anteprima mostra le righe parsate; solo dopo la conferma i dati vengono salvati come nuova versione del listino.</p>
+    <h4 style="margin-top:8px">1. Carica file CSV</h4>
+    <div class="form-row"><label>File</label>
+      <input type="file" id="csv-file" accept=".csv,.txt,text/csv">
+    </div>
+    <p class="tiny" style="margin-top:-4px">Separatori supportati: <span class="mono">, ;</span> · Testo tra virgolette: <span class="mono">"…"</span></p>
+    <div id="csv-hint" class="info-box" style="display:none"></div>
+    <h4 style="margin-top:12px">2. Mapping colonne</h4>
+    <div id="csv-mapping"></div>
+    <h4 style="margin-top:12px">3. Anteprima righe</h4>
+    <div id="csv-warn" class="err-box" style="display:none"></div>
+    <div id="csv-preview"></div>
+    <h4 style="margin-top:12px">4. Dettagli nuova versione</h4>
+    <div class="form-row"><label>Etichetta</label><input type="text" id="csv-label" value="Import CSV — ${esc(listinoRiferimento.label || listinoRiferimento.id)}"></div>
+    <div class="form-row"><label>Decorrenza inizio</label><input type="date" id="csv-dec-in" value="2027-01-01"></div>
+    <div class="form-row"><label>Decorrenza fine</label><input type="date" id="csv-dec-out" value="2027-12-31"></div>
+    <div class="form-row"><label>Note</label><input type="text" id="csv-note" value="Importazione CSV"></div>`;
+  let parsed = null; // { header, rows }
+  let mapping = {}; // campoAtteso -> index
+
+  const buildMapping = () => {
+    const cont = $('#csv-mapping', b);
+    if (!parsed) { cont.innerHTML = '<div class="dt-empty">Carica prima un file CSV.</div>'; return; }
+    cont.innerHTML = '';
+    parsed.header.forEach((h, ix) => {
+      const row = el('div', { class: 'form-row', style: 'grid-template-columns:1fr 1fr;gap:8px' });
+      row.appendChild(el('label', {}, `Colonna ${ix + 1}: <span class="mono">${esc(h)}</span>`));
+      const sel = el('select', { 'data-ix': ix, class: 'inline-select', style: 'max-width:none;width:100%' });
+      sel.appendChild(el('option', { value: '' }, '— ignora —'));
+      campiAttesi.forEach(c => {
+        const opt = el('option', { value: c.key }, c.label + (c.required ? ' *' : ''));
+        // auto-suggest per alias
+        if (h.toLowerCase().trim() === c.key.toLowerCase() || c.aliases.some(a => h.toLowerCase().trim() === a.toLowerCase())) {
+          opt.selected = true;
+          mapping[c.key] = ix;
+        }
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', () => {
+        // mapping è campoAtteso -> ix (l'ultima assegnazione vince)
+        const wasMapped = Object.entries(mapping).find(([k, v]) => v === ix);
+        if (wasMapped) delete mapping[wasMapped[0]];
+        if (sel.value) mapping[sel.value] = ix;
+        renderPreview();
+      });
+      row.appendChild(sel);
+      cont.appendChild(row);
+    });
+    // Campi senza match: warning
+    const mancanti = campiAttesi.filter(c => c.required && mapping[c.key] == null).map(c => c.label);
+    if (mancanti.length) {
+      cont.appendChild(el('div', { class: 'warn-box' }, `⚠️ Campi obbligatori non mappati: <strong>${mancanti.map(esc).join(', ')}</strong>. Mappali prima di importare.`));
+    }
+    renderPreview();
+  };
+
+  const renderPreview = () => {
+    if (!parsed) { $('#csv-preview', b).innerHTML = ''; return; }
+    if (!mapping['vendita'] && tipo === 'vendita') { $('#csv-preview', b).innerHTML = ''; return; }
+    if (!mapping['costo'] && tipo === 'costo') { $('#csv-preview', b).innerHTML = ''; return; }
+
+    const ixV = mapping['vettore'] ?? mapping['vettoreRif'];
+    const ixS = mapping['scaglione'];
+    const ixZ = mapping['zona'];
+    const ixC = mapping['costo'];
+    const ixV2 = mapping['vendita'];
+
+    const parsedRows = parsed.rows.map((r, i) => {
+      const obj = {
+        _ix: i,
+        vettore: ixV != null ? (r[ixV] || '').trim() : '',
+        scaglione: ixS != null ? (r[ixS] || '').trim() : '',
+        zona: ixZ != null ? (r[ixZ] || '').trim() : '',
+        costo: ixC != null ? parseFloat(String(r[ixC] || '').replace(',', '.')) : null,
+        vendita: ixV2 != null ? parseFloat(String(r[ixV2] || '').replace(',', '.')) : null
+      };
+      obj.errori = [];
+      if (!obj.vettore) obj.errori.push('vettore mancante');
+      if (!obj.scaglione) obj.errori.push('scaglione mancante');
+      if (!obj.zona) obj.errori.push('zona mancante');
+      if (tipo === 'costo' && (obj.costo == null || isNaN(obj.costo))) obj.errori.push('costo non numerico');
+      if (tipo === 'vendita' && (obj.vendita == null || isNaN(obj.vendita))) obj.errori.push('vendita non numerica');
+      return obj;
+    });
+    const errate = parsedRows.filter(p => p.errori.length);
+    const sottoCosto = tipo === 'vendita' ? parsedRows.filter(p => p.costo && p.vendita < p.costo) : [];
+
+    let warnHtml = '';
+    if (errate.length) warnHtml += `<div class="err-box">⚠️ <strong>${errate.length}</strong> righe con errori di parsing (verranno <strong>saltate</strong> in fase di importazione).</div>`;
+    if (sottoCosto.length) warnHtml += `<div class="warn-box">⛔ <strong>${sottoCosto.length}</strong> righe con vendita &lt; costo. In fase di conferma ti verrà chiesto di confermare esplicitamente prima di procedere.</div>`;
+    if (warnHtml) { $('#csv-warn', b).style.display = ''; $('#csv-warn', b).innerHTML = warnHtml; } else { $('#csv-warn', b).style.display = 'none'; }
+
+    const table = el('table', { class: 'dt' });
+    table.innerHTML = `<thead><tr>
+      <th>#</th>
+      <th>${tipo === 'vendita' ? 'Vettore rif.' : 'Vettore'}</th>
+      <th>Scaglione</th><th>Zona</th>
+      <th class="num">Costo</th>
+      ${tipo === 'vendita' ? '<th class="num">Vendita</th><th class="num">Margine</th>' : ''}
+      <th>Esito parsing</th>
+    </tr></thead>`;
+    const tb = el('tbody');
+    parsedRows.slice(0, 200).forEach(p => {
+      const tr = el('tr', { class: p.errori.length ? 'row-danger' : '' });
+      const margine = p.costo && p.vendita ? p.vendita - p.costo : null;
+      tr.innerHTML = `<td class="tiny">${p._ix + 1}</td>
+        <td>${esc(p.vettore || '—')}</td>
+        <td>${esc(p.scaglione || '—')}</td>
+        <td>${esc(p.zona || '—')}</td>
+        <td class="num">${p.costo != null && !isNaN(p.costo) ? fmtEur(p.costo) : '<span class="muted">—</span>'}</td>
+        ${tipo === 'vendita' ? `<td class="num">${p.vendita != null && !isNaN(p.vendita) ? `<strong>${fmtEur(p.vendita)}</strong>` : '<span class="muted">—</span>'}</td><td class="num" style="color:${margine != null && margine < 0 ? 'var(--err)' : 'var(--ok)'}">${margine != null ? (margine >= 0 ? '+' : '') + fmtEur(margine) : '—'}</td>` : ''}
+        <td>${p.errori.length ? '<span class="badge err">' + p.errori.join(', ') + '</span>' : '<span class="badge ok">ok</span>'}</td>`;
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    if (parsedRows.length > 200) {
+      table.appendChild(el('div', { class: 'tiny', style: 'padding:6px' }, `… mostrate prime 200 righe di ${parsedRows.length}.`));
+    }
+    const prev = $('#csv-preview', b); prev.innerHTML = ''; prev.appendChild(table);
+  };
+
+  const csvFile = $('#csv-file', b);
+  csvFile.addEventListener('change', () => {
+    const f = csvFile.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const text = e.target.result;
+      parsed = parseCSVText(text);
+      if (!parsed.length || parsed.length < 2) { toast('CSV vuoto o non valido', 'err'); return; }
+      const header = parsed[0].map(h => h.trim());
+      parsed = { header, rows: parsed.slice(1) };
+      $('#csv-hint', b).style.display = '';
+      $('#csv-hint', b).innerHTML = `✔ <strong>${parsed.rows.length}</strong> righe lette (oltre l'intestazione). <strong>${parsed.header.length}</strong> colonne: <span class="mono">${parsed.header.map(esc).join(' · ')}</span>`;
+      buildMapping();
+    };
+    reader.readAsText(f);
+  });
+
+  openModal({
+    title: `Importa CSV — listino di ${tipo === 'costo' ? 'costo' : 'vendita'}`, body: b, size: 'wide',
+    actions: [
+      { label: 'Annulla' },
+      { label: 'Importa e crea nuova versione', cls: 'btn-primary', keepOpen: true, onClick: (bd, close) => {
+          if (!parsed) { toast('Carica prima un file CSV', 'err'); return false; }
+          const required = campiAttesi.filter(c => c.required);
+          const mancanti = required.filter(c => mapping[c.key] == null);
+          if (mancanti.length) { toast(`Mappatura incompleta: ${mancanti.map(c => c.label).join(', ')}`, 'err'); return false; }
+
+          // parsing finale
+          const parsedRows = parsed.rows.map((r, i) => {
+            const obj = {
+              _ix: i,
+              vettore: mapping['vettore'] != null ? (r[mapping['vettore']] || '').trim() : (mapping['vettoreRif'] != null ? (r[mapping['vettoreRif']] || '').trim() : ''),
+              scaglione: (r[mapping['scaglione']] || '').trim(),
+              zona: (r[mapping['zona']] || '').trim(),
+              costo: mapping['costo'] != null ? parseFloat(String(r[mapping['costo']] || '').replace(',', '.')) : null,
+              vendita: mapping['vendita'] != null ? parseFloat(String(r[mapping['vendita']] || '').replace(',', '.')) : null
+            };
+            obj.errori = [];
+            if (!obj.vettore) obj.errori.push('vettore mancante');
+            if (!obj.scaglione) obj.errori.push('scaglione mancante');
+            if (!obj.zona) obj.errori.push('zona mancante');
+            if (tipo === 'costo' && (obj.costo == null || isNaN(obj.costo))) obj.errori.push('costo non numerico');
+            if (tipo === 'vendita' && (obj.vendita == null || isNaN(obj.vendita))) obj.errori.push('vendita non numerica');
+            return obj;
+          });
+          const okRows = parsedRows.filter(p => !p.errori.length);
+          if (!okRows.length) { toast('Nessuna riga valida da importare', 'err'); return false; }
+
+          // arricchisci con riferimento al listino di costo per vendita
+          let righeFinali;
+          if (tipo === 'vendita') {
+            const costoAttivo = listinoCostoAttivo();
+            righeFinali = okRows.map(r => {
+              const rifCosto = costoAttivo?.righe.find(x => x.vettore === r.vettore && x.scaglione === r.scaglione && x.zona === r.zona);
+              const costo = r.costo != null ? r.costo : (rifCosto ? rifCosto.costo : null);
+              const costoVettore = rifCosto ? rifCosto.costoVettore : null;
+              return {
+                vettoreRif: r.vettore, scaglione: r.scaglione, zona: r.zona,
+                costo: costo || 0, costoVettore, vendita: r.vendita,
+                margine: costo ? +(r.vendita - costo).toFixed(2) : 0,
+                personalizzazione: { tipo: 'abs', valore: r.vendita, applicataIl: nowStr().slice(0, 10) }
+              };
+            });
+          } else {
+            righeFinali = okRows.map(r => {
+              // per il costo: prova a derivare costoVettore dal listino vettore di riferimento
+              const lv = LISTINI_VETTORE[r.vettore];
+              const vrow = lv?.rows.find(x => x.scaglione === r.scaglione && x.zona === r.zona);
+              return {
+                vettore: r.vettore, scaglione: r.scaglione, zona: r.zona,
+                costo: r.costo, costoVettore: vrow ? vrow.prezzo : null,
+                origine: vrow ? `Importato da CSV — listino vettore ${r.vettore}` : 'Importato da CSV',
+                origineTipo: 'csv',
+                valoreOriginale: r.costo,
+                personalizzazione: { tipo: 'abs', valore: r.costo, applicataIl: nowStr().slice(0, 10) }
+              };
+            });
+          }
+
+          // validazione sotto-costo per vendita
+          const sottoCosto = tipo === 'vendita' ? righeFinali.filter(r => r.costo && r.vendita < r.costo) : [];
+          const finalizeImport = () => {
+            const decorrenzaInizio = $('#csv-dec-in', bd).value || OGGI;
+            const decorrenzaFine = $('#csv-dec-out', bd).value || '';
+            const label = $('#csv-label', bd).value.trim() || `Import CSV ${nowStr().slice(0, 10)}`;
+            const note = $('#csv-note', bd).value.trim() || 'Importazione CSV';
+            let stato = OGGI < decorrenzaInizio ? 'futuro' : (decorrenzaFine && OGGI > decorrenzaFine ? 'archiviato' : 'attivo');
+
+            // genera id
+            let id;
+            if (tipo === 'vendita') {
+              const same = LISTINI_VENDITA_VERSIONI.filter(x => x.mandante === listinoRiferimento.mandante);
+              const nn = same.length + 1;
+              const mTag = (listinoRiferimento.mandante.split(' ')[0] || 'CLI').replace(/[^A-Za-z]/g, '').toUpperCase();
+              id = `LV-${mTag}-${String(nn).padStart(3, '0')}-CSV`;
+            } else {
+              const anno = decorrenzaInizio.slice(0, 4);
+              const same = LISTINI_COSTO_VERSIONI.filter(x => x.id.startsWith('LC-' + anno + '-'));
+              const nn = same.length + 1;
+              id = `LC-${anno}-${String(nn).padStart(2, '0')}-CSV`;
+            }
+
+            // auto-arciviazione
+            if (stato === 'attivo' || stato === 'futuro') {
+              const coll = tipo === 'vendita' ? LISTINI_VENDITA_VERSIONI : LISTINI_COSTO_VERSIONI;
+              coll.filter(x => x.stato === stato && (tipo === 'vendita' ? x.mandante === listinoRiferimento.mandante : true) && x.id !== id)
+                .forEach(prev => {
+                  if (decorrenzaInizio <= (prev.decorrenzaInizio || '')) {
+                    prev.stato = 'archiviato';
+                    prev.decorrenzaFine = decorrenzaInizio;
+                  }
+                });
+            }
+
+            const nuovo = {
+              id, label, decorrenzaInizio, decorrenzaFine, stato,
+              righe: righeFinali, note: note + ` (${okRows.length} righe importate${parsedRows.length - okRows.length ? `, ${parsedRows.length - okRows.length} saltate` : ''})`,
+              creatoIl: nowStr(), creatoDa: currentUser?.nome || 'Sistema'
+            };
+            if (tipo === 'vendita') {
+              nuovo.mandante = listinoRiferimento.mandante;
+              nuovo.agente = listinoRiferimento.agente;
+              nuovo.provvigionePct = listinoRiferimento.provvigionePct;
+              nuovo.scontoPct = listinoRiferimento.scontoPct;
+              LISTINI_VENDITA_VERSIONI.push(nuovo);
+            } else {
+              LISTINI_COSTO_VERSIONI.push(nuovo);
+            }
+            ricalcolaStatoListini();
+            renderListinoCostoAttivo(); renderListinoCostoStorico();
+            renderListinoVenditaAttivo(); renderListinoVenditaStorico();
+            toast(`Importate ${okRows.length} righe in ${id} (${stato})${parsedRows.length - okRows.length ? `, ${parsedRows.length - okRows.length} saltate` : ''}`, sottoCosto.length ? 'warn' : 'ok');
+            close();
+          };
+
+          if (sottoCosto.length) {
+            openModal({
+              title: 'Conferma righe in perdita',
+              body: `<p>Il file CSV contiene <strong>${sottoCosto.length} righe con vendita &lt; costo</strong>. Per procedere è richiesta una conferma esplicita.</p>
+                <ul style="margin:6px 0 0 18px">${sottoCosto.slice(0, 5).map(r => `<li class="mono">${esc(r.vettoreRif)} · ${esc(r.scaglione)}</li>`).join('')}</ul>
+                ${sottoCosto.length > 5 ? `<li class="tiny">… e altre ${sottoCosto.length - 5}</li>` : ''}`,
+              actions: [
+                { label: 'Annulla' },
+                { label: `Conferma e importa con ${sottoCosto.length} righe in perdita`, cls: 'btn-danger', onClick: () => finalizeImport() }
+              ]
+            });
+            return false;
+          }
+          finalizeImport();
         } }
     ]
   });
 }
 
-function initStoricita() {
-  const sel = $('#stor-cliente');
-  sel.innerHTML = MANDANTI.map(m => `<option>${m}</option>`).join('');
-  const render = () => {
-    const rows = STORICO_LISTINI[sel.value];
-    $('#stor-timeline').innerHTML = rows.map(r => `
-      <li>
-        <span class="h-when">${esc(r.periodo)}</span>
-        <span>
-          <strong>${esc(r.label)}</strong><br>
-          ${r.stato === 'attivo' ? badge('in vigore', 'ok') : r.stato === 'futuro' ? badge('futuro — coesiste con l\'attuale', 'accent') : badge('archiviato', '')}
-        </span>
-      </li>`).join('');
+/* ============================================================
+   10h. Esporta CSV
+   ============================================================ */
+function esportaListinoCSV(v, tipo) {
+  const header = tipo === 'costo'
+    ? ['vettore', 'scaglione', 'zona', 'costo', 'costo_vettore', 'personalizzazione_tipo', 'personalizzazione_valore']
+    : ['mandante', 'vettore', 'scaglione', 'zona', 'costo', 'vendita', 'margine', 'agente', 'provvigione_pct', 'sconto_pct'];
+  const csvSep = ';';
+  const escape = val => {
+    if (val == null) return '';
+    const s = String(val);
+    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  sel.addEventListener('change', render);
-  render();
+  const lines = [header.join(csvSep)];
+  v.righe.forEach(r => {
+    if (tipo === 'costo') {
+      lines.push([r.vettore, r.scaglione, r.zona, r.costo, r.costoVettore || '', r.personalizzazione?.tipo || '', r.personalizzazione?.valore || ''].map(escape).join(csvSep));
+    } else {
+      lines.push([v.mandante, r.vettoreRif, r.scaglione, r.zona, r.costo, r.vendita, r.margine, v.agente || '', v.provvigionePct || 0, v.scontoPct || 0].map(escape).join(csvSep));
+    }
+  });
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: `${v.id}.csv` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`Esportato ${v.id} (${v.righe.length} righe)`, 'ok');
 }
 
 /* ============================================================
@@ -2485,13 +3570,19 @@ function initDashboard() {
   $('#dash-date').textContent = 'Martedì 21 luglio 2026 · Centro di smistamento Genova Bolzaneto';
   const capErr = SPEDIZIONI.filter(s => !s.capValido).length;
   const giacAperte = GIACENZE.filter(g => g.esito === 'Aperta').length;
-  const perdita = LISTINI_VENDITA.filter(r => r.vendita < r.costo).length;
+  // Righe di vendita in perdita: solo listini attivi (futuro/attivo), in tutte le versioni correnti
+  const perdita = LISTINI_VENDITA_VERSIONI
+    .filter(l => l.stato !== 'archiviato')
+    .reduce((acc, l) => acc + l.righe.filter(r => r.vendita < r.costo).length, 0);
   const flussiErr = FLUSSI.filter(f => f.stato === 'Errore').length;
+  const listiniCostoAttivi = LISTINI_COSTO_VERSIONI.filter(l => l.stato === 'attivo').length;
+  const listiniVenditaAttivi = LISTINI_VENDITA_VERSIONI.filter(l => l.stato === 'attivo').length;
   $('#dash-kpis').innerHTML = `
     <div class="kpi" onclick="showView('spedizioni')"><div class="kpi-label">Spedizioni in lavorazione</div><div class="kpi-value">${SPEDIZIONI.filter(s => !['Consegnata'].includes(s.stato)).length}</div><div class="kpi-note">su ${SPEDIZIONI.length} totali in vista</div></div>
     <div class="kpi warn" onclick="showView('spedizioni')"><div class="kpi-label">CAP da correggere</div><div class="kpi-value">${capErr}</div><div class="kpi-note">azione massiva disponibile</div></div>
     <div class="kpi err" onclick="showView('giacenze')"><div class="kpi-label">Giacenze aperte</div><div class="kpi-value">${giacAperte}</div><div class="kpi-note">${GIACENZE.filter(g => g.esito === 'Aperta' && g.giorni >= 5).length} oltre 5 giorni</div></div>
     <div class="kpi err" onclick="showView('listini')"><div class="kpi-label">Righe vendita in perdita</div><div class="kpi-value">${perdita}</div><div class="kpi-note">controllo listini</div></div>
+    <div class="kpi" onclick="showView('listini')"><div class="kpi-label">Listini costo / vendita attivi</div><div class="kpi-value">${listiniCostoAttivi} / ${listiniVenditaAttivi}</div><div class="kpi-note">su ${LISTINI_COSTO_VERSIONI.length} + ${LISTINI_VENDITA_VERSIONI.length} totali (incl. futuri e archiviati)</div></div>
     <div class="kpi ${flussiErr ? 'warn' : 'ok'}" onclick="showView('flussi')"><div class="kpi-label">Flussi in errore</div><div class="kpi-value">${flussiErr}</div><div class="kpi-note">su ${FLUSSI_TOTALI} configurati</div></div>`;
 
   // distribuzione per stato
@@ -2587,7 +3678,10 @@ function rebuildDataSources() {
   }
   if (dtFlussi) dtFlussi.onFiltersChanged();
   renderKanban();
-  renderListinoVendita();
+  // Le 4 sezioni listini: ricalcolo + re-render
+  ricalcolaStatoListini();
+  renderListinoCostoAttivo(); renderListinoCostoStorico();
+  renderListinoVenditaAttivo(); renderListinoVenditaStorico();
   // Tracking: i suggerimenti rapidi vanno rigenerati
   const sg = $('#track-suggest');
   if (sg) {

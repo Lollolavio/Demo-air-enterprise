@@ -210,40 +210,59 @@
   <section class="view" id="view-listini">
     <div class="view-header">
       <h1>Listini e tariffe</h1>
-      <span class="sub">Tre livelli: listini vettori terzi → listini di costo interni → listini di vendita</span>
+      <span class="sub">4 sezioni: listino di costo, storico listino di costo, listino di vendita, storico listino di vendita</span>
     </div>
     <div class="tabs" id="listini-tabs">
-      <button class="tab-btn active" data-tab="lv">Listini vettori (terzi)</button>
-      <button class="tab-btn" data-tab="lc">Listini di costo interni</button>
-      <button class="tab-btn" data-tab="lvend">Listini di vendita</button>
-      <button class="tab-btn" data-tab="lstor">Storicità</button>
+      <button class="tab-btn active" data-tab="lc">Listino di costo</button>
+      <button class="tab-btn" data-tab="lc-stor">Storico listino di costo</button>
+      <button class="tab-btn" data-tab="lv">Listino di vendita</button>
+      <button class="tab-btn" data-tab="lv-stor">Storico listino di vendita</button>
     </div>
-    <div class="tab-pane active" id="pane-lv">
-      <div class="info-box">⚠️ <strong>Dati di esempio.</strong> I listini reali dei vettori non sono ancora disponibili (in attesa lato cliente): la struttura è pronta per l'inserimento dei valori definitivi.</div>
-      <div class="tabs" id="lv-vettori-tabs" style="border-bottom-width:1px"></div>
-      <div class="price-meta" id="lv-meta"></div>
-      <div id="dt-listino-vettore"></div>
-    </div>
-    <div class="tab-pane" id="pane-lc">
-      <div class="price-meta" id="lc-meta"></div>
+
+    <!-- =============== 1. LISTINO DI COSTO (attivo) =============== -->
+    <div class="tab-pane active" id="pane-lc">
+      <div id="lc-header"></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>Riga con personalizzazione (sovrapposta al valore derivato dal vettore)</span>
+        <span class="tiny">Per modificare un listino attivo: <strong>duplicalo</strong>. I listini di costo e vendita sono storici e si modificano solo creando una nuova versione.</span>
+      </div>
       <div id="dt-listino-costo"></div>
+      <div style="margin-top:18px">
+        <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
+        <div class="price-meta" id="lc-vettori-meta"></div>
+        <div id="dt-listino-vettore"></div>
+      </div>
     </div>
-    <div class="tab-pane" id="pane-lvend">
+
+    <!-- =============== 2. STORICO LISTINO DI COSTO =============== -->
+    <div class="tab-pane" id="pane-lc-stor">
+      <div id="lc-stor-header"></div>
+      <div id="dt-listino-costo-stor"></div>
+    </div>
+
+    <!-- =============== 3. LISTINO DI VENDITA (attivo) =============== -->
+    <div class="tab-pane" id="pane-lv">
+      <div id="lv-header"></div>
+      <div class="form-row" style="max-width:420px;margin-bottom:8px">
+        <label>Mandante</label>
+        <select id="lv-mandante-sel" class="inline-select" style="max-width:none;width:100%"></select>
+      </div>
       <div class="legend">
         <span><span class="sw" style="background:var(--err-bg);border:1px solid var(--err)"></span>Riga in perdita (vendita &lt; costo)</span>
-        <span class="tiny">Le righe sotto il <strong>listino vettore di origine</strong> mostrano un warning più severo rispetto a quelle sotto il solo costo interno.</span>
+        <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>Sotto il listino del vettore terzo (warning severo)</span>
+        <span class="tiny">Le righe <strong>sotto costo</strong> sono bloccanti: per procedere è necessaria una conferma esplicita.</span>
       </div>
       <div id="dt-listino-vendita"></div>
     </div>
-    <div class="tab-pane" id="pane-lstor">
-      <div class="card">
-        <h3>Timeline listini per cliente</h3>
-        <div class="form-row" style="max-width:320px">
-          <label>Mandante</label>
-          <select id="stor-cliente" class="inline-select" style="max-width:none;width:100%"></select>
-        </div>
-        <ul class="hist-timeline" id="stor-timeline"></ul>
+
+    <!-- =============== 4. STORICO LISTINO DI VENDITA =============== -->
+    <div class="tab-pane" id="pane-lv-stor">
+      <div id="lv-stor-header"></div>
+      <div class="form-row" style="max-width:420px;margin-bottom:8px">
+        <label>Mandante</label>
+        <select id="lv-stor-mandante-sel" class="inline-select" style="max-width:none;width:100%"></select>
       </div>
+      <div id="dt-listino-vendita-stor"></div>
     </div>
   </section>
 
