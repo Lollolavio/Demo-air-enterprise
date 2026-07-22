@@ -100,12 +100,12 @@ const COMPAT = {
 };
 const servizioCompatibile = (servizio, vettoreNome) => !vettoreNome || (COMPAT[servizio] || []).includes(vettoreNome);
 
-const STATI_SPED = ['In revisione', 'In staging', 'In sospeso', 'Pronti per etichettatura', 'Pronto per la spedizione', 'In transito', 'Consegnata', 'In giacenza'];
-// Priorità logica per l'ordinamento dei badge di stato ("In sospeso" prima di "Consegnata")
-const STATO_PRIORITA = ['In sospeso', 'In revisione', 'In staging', 'Pronti per etichettatura', 'Pronto per la spedizione', 'In giacenza', 'In transito', 'Consegnata'];
+const STATI_SPED = ['In revisione', 'In staging', 'Pronta per etichettatura', 'Pronto per la spedizione', 'In transito', 'Consegnata', 'In giacenza'];
+// Priorità logica per l'ordinamento dei badge di stato
+const STATO_PRIORITA = ['In revisione', 'In staging', 'Pronta per etichettatura', 'Pronto per la spedizione', 'In giacenza', 'In transito', 'Consegnata'];
 const statoBadgeCls = s => ({
-  'In sospeso': 'err', 'In revisione': 'warn', 'In staging': 'info',
-  'Pronti per etichettatura': 'accent', 'Pronto per la spedizione': 'brand', 'In transito': 'info', 'Consegnata': 'ok', 'In giacenza': 'err'
+  'In revisione': 'warn', 'In staging': 'info',
+  'Pronta per etichettatura': 'accent', 'Pronto per la spedizione': 'brand', 'In transito': 'info', 'Consegnata': 'ok', 'In giacenza': 'err'
 }[s] || '');
 
 const LOCALITA = [
@@ -129,7 +129,7 @@ function makeSpedizioni() {
     const telOk = rnd() > 0.28;
     const telefono = telOk ? '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999) : pick(['3' + rint(200000000, 899999999), '010-' + rint(100000, 999999), '39' + rint(3200000000, 3899999999)]);
     const stato = pick(STATI_SPED);
-    const haVettore = !['In revisione', 'In staging', 'In sospeso'].includes(stato) || rnd() > 0.6;
+    const haVettore = !['In revisione', 'In staging'].includes(stato) || rnd() > 0.6;
     const vettore = haVettore ? pick(VETTORI).nome : null;
     const nServ = rint(0, 2);
     const servizi = [...new Set(Array.from({ length: nServ }, () => pick(SERVIZI)))];
@@ -141,8 +141,8 @@ function makeSpedizioni() {
     const ldv = ['Pronto per la spedizione', 'In transito', 'Consegnata', 'In giacenza'].includes(stato) ? `LDV-2026-0${1100 + i}` : null;
 
     // Storico stati coerente con lo stato corrente
-    const flowIdx = { 'In revisione': 0, 'In staging': 1, 'In sospeso': 1, 'Pronti per etichettatura': 2, 'Pronto per la spedizione': 3, 'In transito': 4, 'Consegnata': 5, 'In giacenza': 5 };
-    const flow = ['In revisione', 'In staging', 'Pronti per etichettatura', 'Pronto per la spedizione', 'In transito', stato === 'In giacenza' ? 'In giacenza' : 'Consegnata'];
+    const flowIdx = { 'In revisione': 0, 'In staging': 1, 'Pronta per etichettatura': 2, 'Pronto per la spedizione': 3, 'In transito': 4, 'Consegnata': 5, 'In giacenza': 5 };
+    const flow = ['In revisione', 'In staging', 'Pronta per etichettatura', 'Pronto per la spedizione', 'In transito', stato === 'In giacenza' ? 'In giacenza' : 'Consegnata'];
     const storico = flow.slice(0, flowIdx[stato] + 1).map((s, ix) => ({
       stato: ix === flowIdx[stato] ? stato : s,
       data: `2026-07-${String(Math.min(giorno + ix, 21)).padStart(2, '0')} ${String(Math.min(ora + ix, 23)).padStart(2, '0')}:${String(rint(0, 59)).padStart(2, '0')}`,
@@ -153,7 +153,7 @@ function makeSpedizioni() {
 
     const tracking = storico.map(h => ({
       data: h.data,
-      evento: { 'In revisione': 'Spedizione acquisita dal flusso cliente', 'In staging': 'Dati validati — in attesa di assegnazione vettore', 'Pronti per etichettatura': 'Etichetta pronta per la stampa', 'Pronto per la spedizione': 'LDV generata e stampata — spedizione pronta per il ritiro/affidamento al vettore', 'In transito': 'Affidata al vettore — in transito', 'Consegnata': 'Consegnata al destinatario', 'In giacenza': 'Tentativo di consegna non riuscito — in giacenza', 'In sospeso': 'Lavorazione sospesa: dati da verificare' }[h.stato] || h.stato,
+      evento: { 'In revisione': 'Spedizione acquisita dal flusso cliente', 'In staging': 'Dati validati — in attesa di assegnazione vettore', 'Pronta per etichettatura': 'Etichetta pronta per la stampa', 'Pronto per la spedizione': 'LDV generata e stampata — spedizione pronta per il ritiro/affidamento al vettore', 'In transito': 'Affidata al vettore — in transito', 'Consegnata': 'Consegnata al destinatario', 'In giacenza': 'Tentativo di consegna non riuscito — in giacenza' }[h.stato] || h.stato,
       luogo: ['In transito', 'Consegnata', 'In giacenza'].includes(h.stato) ? localita : 'Centro di smistamento — Genova Bolzaneto',
       interno: false, operatore: h.operatore
     }));
@@ -192,16 +192,16 @@ const spedById = id => SPEDIZIONI.find(s => s.id === id);
  *     c'è vettore → promozione a "In staging";
  *  D) se CAP+tel+vettore sono validi e lo stato è in
  *     revisione/sospeso/staging → promozione a
- *     "Pronti per etichettatura".
+ *     "Pronta per etichettatura".
  *
  * Al termine un toast riepilogativo unico riepiloga i 4 conteggi
  * (A = stati finali corretti, B = in revisione, C = promozioni a
- * staging, D = promozioni a Pronti per etichettatura).
+ * staging, D = promozioni a Pronta per etichettatura).
  * ---------------------------------------------------------- */
 function normalizzaDatasetDemo() {
   const STATI_FINALI = ['In transito', 'Consegnata', 'Pronto per la spedizione', 'In giacenza'];
-  const REV_SOSPESO = ['In revisione', 'In sospeso'];
-  const REV_SOSPESO_STAGING = ['In revisione', 'In sospeso', 'In staging'];
+  const REV = ['In revisione'];
+  const REV_STAGING = ['In revisione', 'In staging'];
 
   let A = 0, B = 0, C = 0, D = 0;
 
@@ -265,8 +265,8 @@ function normalizzaDatasetDemo() {
       continue; // salta C e D: appena declassata, non può essere promossa nello stesso giro
     }
 
-    // ---- C) Promozione a "In staging" (CAP+tel OK, in rev/sospeso, senza vettore) ----
-    if (REV_SOSPESO.includes(r.stato) && !r.vettore) {
+    // ---- C) Promozione a "In staging" (CAP+tel OK, in revisione, senza vettore) ----
+    if (REV.includes(r.stato) && !r.vettore) {
       r.stato = 'In staging';
       C++;
       r.storico.push({
@@ -285,15 +285,16 @@ function normalizzaDatasetDemo() {
       });
     }
 
-    // ---- D) Promozione a "Pronti per etichettatura" (CAP+tel+vettore OK) ----
-    if (r.vettore && REV_SOSPESO_STAGING.includes(r.stato)) {
-      r.stato = 'Pronti per etichettatura';
+    // ---- D) Promozione a "Pronta per etichettatura" (CAP+tel+vettore OK) ----
+    // ---- D) Promozione a "Pronta per etichettatura" (CAP+tel+vettore OK) ----
+    if (r.vettore && REV_STAGING.includes(r.stato)) {
+      r.stato = 'Pronta per etichettatura';
       D++;
       r.storico.push({
-        stato: 'Pronti per etichettatura',
+        stato: 'Pronta per etichettatura',
         data: nowStr(),
         operatore: 'M. Bruzzone',
-        nota: 'CAP+tel validi e vettore assegnato — promozione a Pronti per etichettatura (boot)'
+        nota: 'CAP+tel validi e vettore assegnato — promozione a Pronta per etichettatura (boot)'
       });
       r.tracking.push({
         data: nowStr(),
@@ -301,13 +302,13 @@ function normalizzaDatasetDemo() {
         luogo: 'Back office',
         interno: true,
         operatore: 'M. Bruzzone',
-        notaInterna: 'Auto-promo a Pronti per etichettatura al boot (CAP+tel+vettore OK)'
+        notaInterna: 'Auto-promo a Pronta per etichettatura al boot (CAP+tel+vettore OK)'
       });
     }
   }
 
   toast(
-    `Demo normalizzato: ${A} stati finali corretti, ${B} in revisione, ${C} promozioni a staging, ${D} promozioni a Pronti per etichettatura`,
+    `Demo normalizzato: ${A} stati finali corretti, ${B} in revisione, ${C} promozioni a staging, ${D} promozioni a Pronta per etichettatura`,
     'info',
     'Boot'
   );
@@ -1020,15 +1021,15 @@ function bulkAssegnaVettore(sel, api) {
 
 function validaCambioStato(r, nuovoStato) {
   // Vincoli di transizione di stato: cliente e back office
-  if (nuovoStato === 'Pronti per etichettatura' && !r.vettore) {
-    return { ok: false, msg: `${r.id}: impossibile passare a «Pronti per etichettatura» senza un vettore assegnato` };
+  if (nuovoStato === 'Pronta per etichettatura' && !r.vettore) {
+    return { ok: false, msg: `${r.id}: impossibile passare a «Pronta per etichettatura» senza un vettore assegnato` };
   }
   if (nuovoStato === 'In staging' && (!r.capValido || !r.telOk)) {
     return { ok: false, msg: `${r.id}: CAP e telefono devono essere validi per passare a «In staging» (correggere prima i dati)` };
   }
-  // Da "In revisione" si esce solo promuovendo a "In staging" (o "In sospeso" per sospensione manuale)
-  if (r.stato === 'In revisione' && nuovoStato !== 'In staging' && nuovoStato !== 'In sospeso') {
-    return { ok: false, msg: `${r.id}: da «In revisione» si esce solo con «In staging» (dati validi) o «In sospeso» (sospensione manuale)` };
+  // Da "In revisione" si esce solo promuovendo a "In staging"
+  if (r.stato === 'In revisione' && nuovoStato !== 'In staging') {
+    return { ok: false, msg: `${r.id}: da «In revisione» si esce solo con «In staging» (dati validi)` };
   }
   return { ok: true };
 }
@@ -1040,13 +1041,13 @@ function bulkCambiaStato(sel, api) {
     <div id="bs-warn"></div>`;
   const refreshWarn = () => {
     const st = $('#bs-st', body).value;
-    const noVet = st === 'Pronti per etichettatura' ? sel.rows.filter(r => !r.vettore).length : 0;
+    const noVet = st === 'Pronta per etichettatura' ? sel.rows.filter(r => !r.vettore).length : 0;
     const noDati = st === 'In staging' ? sel.rows.filter(r => !r.capValido || !r.telOk).length : 0;
-    const daRevisione = st !== 'In staging' && st !== 'In sospeso' ? sel.rows.filter(r => r.stato === 'In revisione').length : 0;
+    const daRevisione = st !== 'In staging' ? sel.rows.filter(r => r.stato === 'In revisione').length : 0;
     let html = '';
-    if (noVet)    html += `<div class="warn-box">⚠ <strong>${noVet}</strong> spedizioni senza vettore: non possono passare a «Pronti per etichettatura».</div>`;
+    if (noVet)    html += `<div class="warn-box">⚠ <strong>${noVet}</strong> spedizioni senza vettore: non possono passare a «Pronta per etichettatura».</div>`;
     if (noDati)   html += `<div class="warn-box">⚠ <strong>${noDati}</strong> spedizioni con CAP o telefono non validi: non possono passare a «In staging».</div>`;
-    if (daRevisione) html += `<div class="warn-box">⚠ <strong>${daRevisione}</strong> spedizioni sono attualmente in «In revisione»: da questo stato si esce solo con «In staging» o «In sospeso».</div>`;
+    if (daRevisione) html += `<div class="warn-box">⚠ <strong>${daRevisione}</strong> spedizioni sono attualmente in «In revisione»: da questo stato si esce solo con «In staging».</div>`;
     if (!html)    html = `<div class="info-box">✔ Nessuna restrizione: tutte le ${sel.rows.length} spedizioni possono passare a «${esc(st)}».</div>`;
     $('#bs-warn', body).innerHTML = html;
   };
@@ -1114,17 +1115,17 @@ function bulkCorreggiCap(sel, api) {
   const target = api.getFilteredRows().filter(r => !r.capValido);
   // Auto-promozione a "In staging" solo per le spedizioni attualmente in revisione
   // (o in sospeso con CAP non valido): CAP appena corretto, se anche il telefono è ok → staging.
-  const promoCount = () => target.filter(r => (r.stato === 'In revisione' || r.stato === 'In sospeso') && r.telOk).length;
+  const promoCount = () => target.filter(r => (r.stato === 'In revisione') && r.telOk).length;
   confirmBulk({
     azione: 'Correggi CAP non validi (mock)', count: target.length, mode: 'filter',
-    dettagli: 'Vengono considerate solo le righe con stato «CAP da correggere» all\'interno del risultato del filtro corrente. Le spedizioni attualmente in «In revisione» (o «In sospeso») con telefono già valido vengono promosse automaticamente a «In staging».',
+    dettagli: 'Vengono considerate solo le righe con stato «CAP da correggere» all\'interno del risultato del filtro corrente. Le spedizioni attualmente in «In revisione» con telefono già valido vengono promosse automaticamente a «In staging».',
     onConfirm: () => {
       let promo = 0;
       target.forEach(r => {
         const loc = LOCALITA.find(l => l[0] === r.localita);
         r.cap = loc ? loc[2] : '16121'; r.capValido = true;
         // auto-promozione: CAP appena corretto, tel già ok → passa a staging
-        if ((r.stato === 'In revisione' || r.stato === 'In sospeso') && r.telOk) {
+        if ((r.stato === 'In revisione') && r.telOk) {
           r.stato = 'In staging';
           r.storico.push({ stato: 'In staging', data: nowStr(), operatore: 'M. Bruzzone', nota: 'CAP corretto e validato — promozione automatica a staging' });
           r.tracking.push({ data: nowStr(), evento: 'CAP corretto — dati anagrafici validati, in attesa di assegnazione vettore', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: 'Auto-promo a staging post-correzione CAP massiva' });
@@ -1141,12 +1142,12 @@ function bulkNormalizzaTel(sel, api) {
   const target = api.getFilteredRows().filter(r => !r.telOk);
   confirmBulk({
     azione: 'Normalizza numeri di telefono (mock)', count: target.length, mode: 'filter',
-    dettagli: 'I numeri in formato non standard vengono riportati al formato internazionale +39 per l\'invio SMS. Le spedizioni attualmente in «In revisione» (o «In sospeso») con CAP già valido vengono promosse automaticamente a «In staging».',
+    dettagli: 'I numeri in formato non standard vengono riportati al formato internazionale +39 per l\'invio SMS. Le spedizioni attualmente in «In revisione» con CAP già valido vengono promosse automaticamente a «In staging».',
     onConfirm: () => {
       let promo = 0;
       target.forEach(r => {
         r.telefono = '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999); r.telOk = true;
-        if ((r.stato === 'In revisione' || r.stato === 'In sospeso') && r.capValido) {
+        if ((r.stato === 'In revisione') && r.capValido) {
           r.stato = 'In staging';
           r.storico.push({ stato: 'In staging', data: nowStr(), operatore: 'M. Bruzzone', nota: 'Telefono normalizzato — promozione automatica a staging' });
           r.tracking.push({ data: nowStr(), evento: 'Telefono normalizzato — dati anagrafici validati, in attesa di assegnazione vettore', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: 'Auto-promo a staging post-normalizzazione telefono massiva' });
@@ -1173,11 +1174,11 @@ function initSpedTable() {
     pageSize: 10,
     globalFilter: spedGlobalFilter,
     onRowClick: r => openShipDetail(r.id, 'modal'),
-    // Nella sotto-tab "Pronti per etichettatura" nascondi le colonne "Validazione" e
+    // Nella sotto-tab "Pronta per etichettatura" nascondi le colonne "Validazione" e
     // "Telefono": in quello stato le spedizioni sono già state validate e il CAP/tel
     // non è più un'informazione rilevante per l'operatore. Restano visibili in tutte
     // le altre sotto-tab (compresa "Tutte").
-    hiddenColumns: () => spedTab === 'Pronti per etichettatura' ? ['capValido', 'telefono'] : [],
+    hiddenColumns: () => spedTab === 'Pronta per etichettatura' ? ['capValido', 'telefono'] : [],
     columns: [
       { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>${r.colloMadre ? ' <span class="tag" title="Fa parte di un collo madre">CM</span>' : ''}` },
       { key: 'mandante', label: 'Mandante', ftype: 'enum' },
@@ -1232,7 +1233,7 @@ function initSpedTable() {
     ],
     rowActions: (r) => {
       const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
-      if (r.stato === 'Pronti per etichettatura') box.appendChild(el('button', { class: 'btn btn-sm btn-accent', onclick: () => openLdv(r) }, 'LDV'));
+      if (r.stato === 'Pronta per etichettatura') box.appendChild(el('button', { class: 'btn btn-sm btn-accent', onclick: () => openLdv(r) }, 'LDV'));
       return box;
     },
     bulkActions: [
@@ -1276,7 +1277,7 @@ function openLdv(r) {
     <label>Stampante</label>
     <select id="ldv-printer">${STAMPANTI.map(p => `<option${p === ultimaStampante ? ' selected' : ''}>${p}</option>`).join('')}</select>
   </div>
-  ${r.stato === 'Pronti per etichettatura' ? '<div class="info-box">Alla conferma di stampa la spedizione avanzerà allo stato «Pronto per la spedizione».</div>' : '<div class="tiny">LDV già stampata in precedenza: la ristampa non modifica lo stato della spedizione.</div>'}`;
+  ${r.stato === 'Pronta per etichettatura' ? '<div class="info-box">Alla conferma di stampa la spedizione avanzerà allo stato «Pronto per la spedizione».</div>' : '<div class="tiny">LDV già stampata in precedenza: la ristampa non modifica lo stato della spedizione.</div>'}`;
   openModal({
     title: 'Genera lettera di vettura — anteprima', body: html, size: 'wide',
     actions: [
@@ -1284,8 +1285,8 @@ function openLdv(r) {
       { label: 'Stampa (simulata)', cls: 'btn-primary', onClick: (bd) => {
           const stampante = $('#ldv-printer', bd).value;
           ultimaStampante = stampante; // preselezionata alle prossime aperture
-          // stampa da "Pronti per etichettatura" → avanzamento a "Pronto per la spedizione"
-          if (r.stato === 'Pronti per etichettatura') {
+          // stampa da "Pronta per etichettatura" → avanzamento a "Pronto per la spedizione"
+          if (r.stato === 'Pronta per etichettatura') {
             r.stato = 'Pronto per la spedizione';
             r.storico.push({ stato: 'Pronto per la spedizione', data: nowStr(), operatore: 'M. Bruzzone' });
             r.tracking.push({ data: nowStr(), evento: 'LDV generata e stampata — spedizione pronta per il ritiro/affidamento al vettore', luogo: 'Centro di smistamento — Genova Bolzaneto', interno: false, operatore: 'M. Bruzzone' });
@@ -1305,8 +1306,8 @@ function renderKanban() {
   const src = isMandante ? spedizioniVisibili(SPEDIZIONI) : SPEDIZIONI;
   const cols = [
     { titolo: 'In revisione', stati: ['In revisione'], next: 'In staging', nextLabel: 'Valida dati → Staging' },
-    { titolo: 'In staging', stati: ['In staging'], next: 'Pronti per etichettatura', nextLabel: 'Vettore ok → Pronti per etichettatura', needVettore: true },
-    { titolo: 'Pronti per etichettatura', stati: ['Pronti per etichettatura'], next: null, nextLabel: null }
+    { titolo: 'In staging', stati: ['In staging'], next: 'Pronta per etichettatura', nextLabel: 'Vettore ok → Pronta per etichettatura', needVettore: true },
+    { titolo: 'Pronta per etichettatura', stati: ['Pronta per etichettatura'], next: null, nextLabel: null }
   ];
   const root = $('#staging-kanban');
   if (!root) return; // la vista kanban non è presente in questa versione dell'interfaccia
@@ -1320,9 +1321,9 @@ function renderKanban() {
       const card = el('div', { class: 'kcard', onclick: () => openShipDetail(r.id, 'modal') });
       card.innerHTML = `<div class="k-id">${r.id}</div>
         <div class="k-dest">${esc(r.destinatario)} · ${esc(r.localita)}</div>
-        <div class="k-meta">${esc(r.mandante)} · ${r.vettore ? esc(r.vettore) : '<span style="color:var(--warn)">vettore da assegnare</span>'} ${r.stato === 'Pronti per etichettatura' ? badge('Pronti', 'accent') : ''}</div>`;
+        <div class="k-meta">${esc(r.mandante)} · ${r.vettore ? esc(r.vettore) : '<span style="color:var(--warn)">vettore da assegnare</span>'} ${r.stato === 'Pronta per etichettatura' ? badge('Pronti', 'accent') : ''}</div>`;
       const act = el('div', { class: 'k-actions' });
-      if (c.next && r.stato !== 'Pronti per etichettatura') {
+      if (c.next && r.stato !== 'Pronta per etichettatura') {
         const btn = el('button', { class: 'btn btn-sm btn-primary', onclick: e => {
           e.stopPropagation();
           if (c.needVettore && !r.vettore) { toast(`⚠ ${r.id}: assegnare prima un vettore`, 'err'); return; }
@@ -1540,16 +1541,16 @@ function buildShipDetail(r, variant) {
       nextStato = 'In staging'; nextLabel = 'Valida dati → In staging';
       if (!r.capValido || !r.telOk) blocker = 'CAP e telefono devono essere validi';
     } else if (r.stato === 'In staging') {
-      nextStato = 'Pronti per etichettatura'; nextLabel = 'Vettore ok → Pronti per etichettatura';
+      nextStato = 'Pronta per etichettatura'; nextLabel = 'Vettore ok → Pronta per etichettatura';
       if (!r.vettore) blocker = 'assegnare prima un vettore';
-    } else if (r.stato === 'Pronti per etichettatura') {
-      // Da "Pronti per etichettatura" → "Pronto per la spedizione" resta demandato al flusso LDV
+    } else if (r.stato === 'Pronta per etichettatura') {
+      // Da "Pronta per etichettatura" → "Pronto per la spedizione" resta demandato al flusso LDV
       nextLabel = null;
     }
 
     if (nextStato && nextLabel) {
       nextInfo.innerHTML = `Da <strong>${esc(r.stato)}</strong> a <strong>${esc(nextStato)}</strong>${blocker ? ` — <span style="color:var(--warn)">blocco: ${esc(blocker)}</span>` : ''}`;
-      // Bottone visibile solo se vettore già selezionato (per "In staging" e "Pronti per etichettatura")
+      // Bottone visibile solo se vettore già selezionato (per "In staging" e "Pronta per etichettatura")
       // Nel caso di "In revisione" → "In staging" il vincolo è sui dati, non sul vettore.
       if (r.stato === 'In staging') {
         nextBtn.style.display = r.vettore ? '' : 'none';
@@ -1559,8 +1560,8 @@ function buildShipDetail(r, variant) {
       nextBtn.disabled = !!blocker;
       nextBtn.textContent = nextLabel + ' ▸';
       nextBtn.dataset.next = nextStato;
-    } else if (r.stato === 'Pronti per etichettatura') {
-      nextInfo.innerHTML = `Stato attuale: <strong>Pronti per etichettatura</strong> — l'avanzamento a «Pronto per la spedizione» avviene alla stampa della LDV`;
+    } else if (r.stato === 'Pronta per etichettatura') {
+      nextInfo.innerHTML = `Stato attuale: <strong>Pronta per etichettatura</strong> — l'avanzamento a «Pronto per la spedizione» avviene alla stampa della LDV`;
       nextBtn.style.display = 'none';
     } else {
       nextInfo.innerHTML = `Stato attuale: <strong>${esc(r.stato)}</strong> — nessun avanzamento automatico disponibile da questo stato`;
@@ -1673,8 +1674,8 @@ function renderColli() {
         openModal({ title: 'Spedisci sotto-collo separatamente', body: b, actions: [
           { label: 'Annulla' },
           { label: 'Conferma', cls: 'btn-primary', onClick: bd => {
-              s.vettore = $('#sep-v', bd).value; s.stato = 'Pronti per etichettatura';
-              s.storico.push({ stato: 'Pronti per etichettatura', data: nowStr(), operatore: 'M. Bruzzone', nota: `Scorporato dal collo madre ${cm.id}, partenza ${$('#sep-d', bd).value}` });
+              s.vettore = $('#sep-v', bd).value; s.stato = 'Pronta per etichettatura';
+              s.storico.push({ stato: 'Pronta per etichettatura', data: nowStr(), operatore: 'M. Bruzzone', nota: `Scorporato dal collo madre ${cm.id}, partenza ${$('#sep-d', bd).value}` });
               // scorporo REALE: il sotto-collo esce dal collo madre e torna spedizione indipendente
               cm.figli = cm.figli.filter(id => id !== s.id);
               s.colloMadre = null;
@@ -2277,7 +2278,7 @@ function initAppop() {
 function renderPhone() {
   const isProprio = appopState.mode === 'padroncino';
   $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — Corriere B';
-  const pkgs = SPEDIZIONI.filter(s => ['Pronti per etichettatura', 'In transito'].includes(s.stato)).slice(0, 4);
+  const pkgs = SPEDIZIONI.filter(s => ['Pronta per etichettatura', 'In transito'].includes(s.stato)).slice(0, 4);
   const body = $('#phone-body');
   body.innerHTML = '';
 
@@ -2637,7 +2638,7 @@ function openProfilo() {
 
 document.addEventListener('DOMContentLoaded', () => {
   // normalizzazione dataset demo (boot, una tantum): normalizza CAP/tel/vettore,
-  // promuove in staging / Pronti per etichettatura, declassa in revisione.
+  // promuove in staging / Pronta per etichettatura, declassa in revisione.
   // Va eseguita QUI, non al top-level, perché toast() → logAzione() accede a
   // currentUser / VIEW_LABEL dichiarati più avanti nel file.
   normalizzaDatasetDemo();
