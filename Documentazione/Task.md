@@ -10,7 +10,7 @@
 
 ## 3
 
-- Spefiziomo devve essere suddiviso per tuti gli stati
+- Spedizioni deve essere suddiviso per tutti gli stati
 
 ## 4
 
