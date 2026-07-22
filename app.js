@@ -267,7 +267,7 @@ const GIACENZE = SPEDIZIONI.filter(s => s.stato === 'In giacenza').map(s => ({
 // integriamo con giacenze extra per avere volume
 for (let i = 0; i < 10; i++) {
   const s = pick(SPEDIZIONI.filter(x => x.stato === 'Consegnata'));
-  GIACENZE.push({ id: s.id + '-G', ref: s, mandante: s.mandante, destinatario: s.destinatario, localita: s.localita, motivo: pick(['Destinatario assente', 'Indirizzo errato', 'Rifiuto merce']), giorni: rint(1, 14), esito: 'Aperta' });
+  GIACENZE.push({ id: `${s.id}-G${i + 1}`, ref: s, mandante: s.mandante, destinatario: s.destinatario, localita: s.localita, motivo: pick(['Destinatario assente', 'Indirizzo errato', 'Rifiuto merce']), giorni: rint(1, 14), esito: 'Aperta' });
 }
 
 const MARKETPLACES = ['Amazon', 'Shopify', 'eBay', 'Vinted'];
@@ -1499,18 +1499,48 @@ function renderFlussoDetail(r) {
    12. SEZIONE GIACENZE
    ============================================================ */
 let dtGiacenze = null;
+// Modifiche "in sospeso": id giacenza -> nuovo esito scelto (riga per riga o massivo),
+// non ancora scritte sui dati finché non si preme "Salva" nella barra fuori dalla griglia.
+const giacenzePending = new Map();
+
+function updateGiacenzeSaveBar() {
+  const bar = $('#giacenze-save-bar');
+  if (!bar) return;
+  const n = giacenzePending.size;
+  bar.style.display = n ? '' : 'none';
+  $('#giacenze-pending-count').textContent = n ? `${n} modifica${n === 1 ? '' : 'e'} non salvat${n === 1 ? 'a' : 'e'}` : '';
+}
+
+function commitGiacenzePending() {
+  if (!giacenzePending.size) return;
+  let n = 0;
+  giacenzePending.forEach((esito, id) => {
+    GIACENZE.filter(g => g.id === id).forEach(r => { r.esito = esito; n++; });
+  });
+  giacenzePending.clear();
+  updateGiacenzeSaveBar();
+  dtGiacenze.refresh();
+  toast(`${n} giacenze aggiornate`, 'ok');
+}
+
+function annullaGiacenzePending() {
+  if (!giacenzePending.size) return;
+  giacenzePending.clear();
+  updateGiacenzeSaveBar();
+  dtGiacenze.refresh();
+  toast('Modifiche annullate', '');
+}
+
 function esitoGiacenza(sel, api, esito) {
   const rows = sel.rows.filter(r => r.esito === 'Aperta');
-  confirmBulk({
-    azione: `Segna come «${esito}»`, count: rows.length, mode: sel.mode,
-    dettagli: sel.mode === 'filter' ? 'Esempio d\'uso: filtra «giorni ≥ 5» e applica «Reso al mittente» a tutte le giacenze aperte da più di 5 giorni.' : '',
-    onConfirm: () => {
-      rows.forEach(r => r.esito = esito);
-      api.clearSelection(); api.refresh();
-      toast(`${rows.length} giacenze → ${esito}`, 'ok');
-    }
-  });
+  if (!rows.length) { toast('Nessuna giacenza aperta corrisponde alla selezione o al filtro corrente.', 'warn'); return; }
+  rows.forEach(r => giacenzePending.set(r.id, esito));
+  api.clearSelection();
+  updateGiacenzeSaveBar();
+  api.refresh();
+  toast(`${rows.length} giacenze pronte per il salvataggio → ${esito}. Premi «Salva» in alto per confermare.`, 'info');
 }
+
 function initGiacenze() {
   const azioni = ['Nuovo tentativo di consegna', 'Reso al mittente', 'Smaltimento'];
   dtGiacenze = renderDataTable({
@@ -1525,16 +1555,23 @@ function initGiacenze() {
       { key: 'motivo', label: 'Motivo giacenza', ftype: 'enum', render: r => badge(r.motivo, 'warn') },
       { key: 'giorni', label: 'Giorni aperta', ftype: 'number', numeric: true, render: r => r.giorni >= 5 ? `<strong style="color:var(--err)">${r.giorni}</strong>` : r.giorni },
       { key: 'esito', label: 'Esito', ftype: 'enum', statusOrder: ['Aperta', 'Nuovo tentativo di consegna', 'Reso al mittente', 'Smaltimento'],
-        render: r => badge(r.esito, r.esito === 'Aperta' ? 'err' : r.esito === 'Nuovo tentativo di consegna' ? 'info' : r.esito === 'Reso al mittente' ? 'warn' : '') }
+        render: r => {
+          const pending = giacenzePending.get(r.id);
+          const cur = badge(r.esito, r.esito === 'Aperta' ? 'err' : r.esito === 'Nuovo tentativo di consegna' ? 'info' : r.esito === 'Reso al mittente' ? 'warn' : '');
+          if (!pending || pending === r.esito) return cur;
+          return `${cur} <span class="arrow">→</span> ${badge(pending, 'accent')} <span class="tiny">(da salvare)</span>`;
+        } }
     ],
     rowActions: (r, api) => {
       const sel = el('select', { class: 'inline-select' });
       sel.appendChild(el('option', { value: '' }, 'Azione…'));
       azioni.forEach(a => sel.appendChild(el('option', {}, a)));
+      sel.value = giacenzePending.get(r.id) || '';
       sel.addEventListener('change', () => {
-        if (!sel.value) return;
-        r.esito = sel.value; api.refresh();
-        toast(`${r.id}: ${sel.value}`, 'ok');
+        if (!sel.value) { giacenzePending.delete(r.id); }
+        else { giacenzePending.set(r.id, sel.value); }
+        updateGiacenzeSaveBar();
+        api.refresh();
       });
       return sel;
     },
@@ -1543,6 +1580,9 @@ function initGiacenze() {
       run: (sel, api) => esitoGiacenza(sel, api, a)
     }))
   });
+  $('#btn-giacenze-salva').addEventListener('click', commitGiacenzePending);
+  $('#btn-giacenze-annulla').addEventListener('click', annullaGiacenzePending);
+  updateGiacenzeSaveBar();
 }
 
 /* ============================================================

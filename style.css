@@ -122,6 +122,8 @@ main { max-width: 1440px; margin: 0 auto; padding: 20px 22px 60px; }
 .view-header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
 .view-header .sub { color: var(--ink-soft); font-size: 13px; }
 .view-header .spacer { flex: 1; }
+.save-bar { display: flex; align-items: center; gap: 10px; }
+.save-bar .tiny { color: var(--warn, #b8860b); font-weight: 600; }
 
 .card {
   background: var(--surface);
