@@ -34,7 +34,7 @@
 
 ## 5
 
-- Togliere card filtri rapidi
+- ~~Togliere card filtri rapidi~~
 
 ## 6
 
