@@ -31,11 +31,11 @@ const rnd = () => (_seed = (_seed * 1103515245 + 12345) % 2147483648) / 21474836
 const rint = (a, b) => a + Math.floor(rnd() * (b - a + 1));
 const pick = arr => arr[Math.floor(rnd() * arr.length)];
 
-function toast(msg, kind = '') {
+function toast(msg, kind = '', area = null) {
   const t = el('div', { class: `toast ${kind}` }, msg);
   $('#toasts').appendChild(t);
   setTimeout(() => t.remove(), 3800);
-  logAzione(msg, kind);
+  logAzione(msg, kind, area);
 }
 
 /* ---------------------------------------------------------- *
@@ -55,13 +55,13 @@ function currentAreaLabel() {
   return VIEW_LABEL[name] || '—';
 }
 
-function logAzione(msg, kind = '') {
+function logAzione(msg, kind = '', area = null) {
   LOG_AZIONI.unshift({
     id: logSeq++,
     ts: nowStr(),
     utente: currentUser ? currentUser.nome : 'Sistema',
     livello: currentUser ? currentUser.livello : '—',
-    area: currentAreaLabel(),
+    area: area || currentAreaLabel(),
     messaggio: msg,
     kind
   });
@@ -1147,7 +1147,9 @@ function renderKanban() {
     { titolo: 'In staging', stati: ['In staging'], next: 'Pronta per etichettatura', nextLabel: 'Vettore ok → Pronta per etichettatura', needVettore: true },
     { titolo: 'Pronte per etichettatura', stati: ['Pronta per etichettatura'], next: null, nextLabel: null }
   ];
-  const root = $('#staging-kanban'); root.innerHTML = '';
+  const root = $('#staging-kanban');
+  if (!root) return; // la vista kanban non è presente in questa versione dell'interfaccia
+  root.innerHTML = '';
   cols.forEach(c => {
     const rows = src.filter(s => c.stati.includes(s.stato)).slice(0, 6);
     const tot = src.filter(s => c.stati.includes(s.stato)).length;
@@ -2416,7 +2418,12 @@ function lookupUser(email) {
 
 function doLogin() {
   const email = $('#login-email').value;
+  const isRegistrazione = $('#login-tab-registrati')?.classList.contains('active');
   currentUser = lookupUser(email);
+  if (isRegistrazione) {
+    const nomeInserito = $('#login-nome')?.value.trim();
+    if (nomeInserito) currentUser.nome = nomeInserito;
+  }
   currentUser.ultimoAccesso = nowStr();
   document.body.classList.remove('logged-out');
   if (!appInitialized) { initApp(); appInitialized = true; }
@@ -2428,11 +2435,15 @@ function doLogin() {
     : currentUser.livello === 'Mandante/Sottocontratto'
       ? `${currentUser.livello} (vedi solo dati di ${currentUser.mandante})`
       : currentUser.livello;
-  toast(`Benvenuto, ${currentUser.nome} — accesso come ${note}`, 'ok');
+  const msg = isRegistrazione
+    ? `Registrazione completata — benvenuto, ${currentUser.nome} — accesso come ${note}`
+    : `Benvenuto, ${currentUser.nome} — accesso come ${note}`;
+  toast(msg, 'ok', 'Autenticazione');
 }
 
 function doLogout() {
   $('.modal-backdrop') && $('.modal-backdrop').remove();
+  if (currentUser) logAzione(`Logout — ${currentUser.nome}`, '', 'Autenticazione');
   currentUser = null;
   $('#login-password').value = '';
   document.body.classList.add('logged-out'); // riporta alla schermata di login senza reload
