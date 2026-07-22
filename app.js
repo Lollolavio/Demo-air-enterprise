@@ -31,10 +31,44 @@ const rnd = () => (_seed = (_seed * 1103515245 + 12345) % 2147483648) / 21474836
 const rint = (a, b) => a + Math.floor(rnd() * (b - a + 1));
 const pick = arr => arr[Math.floor(rnd() * arr.length)];
 
-function toast(msg, kind = '') {
+function toast(msg, kind = '', area = null) {
   const t = el('div', { class: `toast ${kind}` }, msg);
   $('#toasts').appendChild(t);
   setTimeout(() => t.remove(), 3800);
+  logAzione(msg, kind, area);
+}
+
+/* ---------------------------------------------------------- *
+ * 0b. Log delle azioni — ogni toast viene anche registrato qui,
+ *     così la pagina "Log azioni" mostra lo storico della sessione
+ *     (data/ora, utente, modulo ed esito) senza duplicare logica.
+ * ---------------------------------------------------------- */
+const LOG_AZIONI = [];
+let logSeq = 1;
+let dtLog = null;
+const KIND_LABEL = { ok: 'Riuscita', err: 'Errore', warn: 'Attenzione', info: 'Informazione', '': 'Notifica' };
+const KIND_CLS   = { ok: 'ok', err: 'err', warn: 'warn', info: 'info', '': 'brand' };
+
+function currentAreaLabel() {
+  const activeView = $('.view.active');
+  const name = activeView ? activeView.id.replace('view-', '') : null;
+  return VIEW_LABEL[name] || '—';
+}
+
+function logAzione(msg, kind = '', area = null) {
+  LOG_AZIONI.unshift({
+    id: logSeq++,
+    ts: nowStr(),
+    utente: currentUser ? currentUser.nome : 'Sistema',
+    livello: currentUser ? currentUser.livello : '—',
+    area: area || currentAreaLabel(),
+    messaggio: msg,
+    kind
+  });
+  if (LOG_AZIONI.length > 500) LOG_AZIONI.length = 500; // limite in memoria, solo per la demo
+  if (dtLog) dtLog.refresh();
+  const counter = $('#log-counter');
+  if (counter) counter.textContent = `${LOG_AZIONI.length} azion${LOG_AZIONI.length === 1 ? 'e registrata' : 'i registrate'} in questa sessione`;
 }
 
 /* ---------------------------------------------------------- *
@@ -303,16 +337,23 @@ const HOME_VIEW = {
  * 'tracking' è gestito a parte perché non è in MODULI.
  */
 const VIEW_AMMESSE = {
-  'Piattaforma':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'config'],
-  'Back office':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'config'],
+  'Piattaforma':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'log', 'config'],
+  'Back office':              ['dashboard', 'spedizioni', 'listini', 'flussi', 'giacenze', 'ecommerce', 'tracking', 'appop', 'utenti', 'log', 'config'],
   'Mandante/Sottocontratto':  ['dashboard', 'spedizioni', 'listini', 'giacenze', 'tracking'],
   'Cliente finale':           ['tracking', 'giacenze']
 };
 const NAV_LABELS = {  // etichette mostrate nella navbar quando un modulo è disabilitato per livello
-  'Piattaforma':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Configurazioni'],
-  'Back office':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Configurazioni'],
+  'Piattaforma':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Log azioni', 'Configurazioni'],
+  'Back office':              ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Flussi in ingresso', 'Giacenze', 'Connettore e-commerce', 'Tracking', 'App operativa', 'Utenti e ruoli', 'Log azioni', 'Configurazioni'],
   'Mandante/Sottocontratto':  ['Dashboard', 'Spedizioni', 'Listini e tariffe', 'Giacenze', 'Tracking'],
   'Cliente finale':           ['Tracking', 'Giacenze']
+};
+// Etichette leggibili per vista, usate dal log delle azioni per indicare il modulo
+const VIEW_LABEL = {
+  dashboard: 'Dashboard', spedizioni: 'Spedizioni', listini: 'Listini e tariffe',
+  flussi: 'Flussi in ingresso', giacenze: 'Giacenze', ecommerce: 'Connettore e-commerce',
+  tracking: 'Tracking', appop: 'App operativa', utenti: 'Utenti e ruoli',
+  log: 'Log azioni', config: 'Configurazioni'
 };
 
 /**
@@ -1106,7 +1147,9 @@ function renderKanban() {
     { titolo: 'In staging', stati: ['In staging'], next: 'Pronta per etichettatura', nextLabel: 'Vettore ok → Pronta per etichettatura', needVettore: true },
     { titolo: 'Pronte per etichettatura', stati: ['Pronta per etichettatura'], next: null, nextLabel: null }
   ];
-  const root = $('#staging-kanban'); root.innerHTML = '';
+  const root = $('#staging-kanban');
+  if (!root) return; // la vista kanban non è presente in questa versione dell'interfaccia
+  root.innerHTML = '';
   cols.forEach(c => {
     const rows = src.filter(s => c.stati.includes(s.stato)).slice(0, 6);
     const tot = src.filter(s => c.stati.includes(s.stato)).length;
@@ -2195,6 +2238,39 @@ function initArch() {
 }
 
 /* ============================================================
+   17b. LOG DELLE AZIONI
+   ============================================================ */
+function initLog() {
+  dtLog = renderDataTable({
+    mount: '#dt-log', title: 'Cronologia notifiche', noun: 'azioni',
+    data: () => LOG_AZIONI, rowKey: r => r.id, pageSize: 15, selectable: false,
+    columns: [
+      { key: 'ts', label: 'Data/ora', ftype: 'date', sortValue: r => r.ts, render: r => `<span class="mono tiny">${esc(r.ts)}</span>` },
+      { key: 'messaggio', label: 'Azione', ftype: 'text', render: r => esc(r.messaggio) },
+      { key: 'area', label: 'Modulo', ftype: 'enum', render: r => badge(r.area, 'brand') },
+      { key: 'utente', label: 'Utente', ftype: 'text', render: r => `${esc(r.utente)}<br><span class="tiny muted">${esc(r.livello)}</span>` },
+      { key: 'kind', label: 'Esito', ftype: 'enum', render: r => badge(KIND_LABEL[r.kind] ?? 'Notifica', KIND_CLS[r.kind] ?? 'brand') }
+    ]
+  });
+  $('#btn-log-clear').addEventListener('click', () => {
+    if (!LOG_AZIONI.length) { toast('Il log è già vuoto', ''); return; }
+    const count = LOG_AZIONI.length;
+    openModal({
+      title: 'Svuota log delle azioni',
+      body: `<p>Confermi l'eliminazione di <strong>${count}</strong> voci dal log della sessione corrente? L'operazione non è reversibile.</p>`,
+      actions: [
+        { label: 'Annulla' },
+        { label: 'Svuota log', cls: 'btn-danger', onClick: () => {
+            LOG_AZIONI.length = 0;
+            dtLog.refresh();
+            toast('Log azioni svuotato', 'ok');
+          } }
+      ]
+    });
+  });
+}
+
+/* ============================================================
    18. DASHBOARD
    ============================================================ */
 function initDashboard() {
@@ -2342,7 +2418,12 @@ function lookupUser(email) {
 
 function doLogin() {
   const email = $('#login-email').value;
+  const isRegistrazione = $('#login-tab-registrati')?.classList.contains('active');
   currentUser = lookupUser(email);
+  if (isRegistrazione) {
+    const nomeInserito = $('#login-nome')?.value.trim();
+    if (nomeInserito) currentUser.nome = nomeInserito;
+  }
   currentUser.ultimoAccesso = nowStr();
   document.body.classList.remove('logged-out');
   if (!appInitialized) { initApp(); appInitialized = true; }
@@ -2354,11 +2435,15 @@ function doLogin() {
     : currentUser.livello === 'Mandante/Sottocontratto'
       ? `${currentUser.livello} (vedi solo dati di ${currentUser.mandante})`
       : currentUser.livello;
-  toast(`Benvenuto, ${currentUser.nome} — accesso come ${note}`, 'ok');
+  const msg = isRegistrazione
+    ? `Registrazione completata — benvenuto, ${currentUser.nome} — accesso come ${note}`
+    : `Benvenuto, ${currentUser.nome} — accesso come ${note}`;
+  toast(msg, 'ok', 'Autenticazione');
 }
 
 function doLogout() {
   $('.modal-backdrop') && $('.modal-backdrop').remove();
+  if (currentUser) logAzione(`Logout — ${currentUser.nome}`, '', 'Autenticazione');
   currentUser = null;
   $('#login-password').value = '';
   document.body.classList.add('logged-out'); // riporta alla schermata di login senza reload
@@ -2447,6 +2532,7 @@ function initApp() {
   initGiacenze();
   initEcommerce();
   initUtenti();
+  initLog();
   initTracking();
   initAppop();
   initArch();
