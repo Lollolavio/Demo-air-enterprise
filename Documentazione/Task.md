@@ -1,34 +1,34 @@
-    # TASK
+# TASK
 
 ## 1
 
-- ~Login come cliente finale deve vedere solo tracking~
+- ~~Login come cliente finale deve vedere solo tracking~~
 
 ## 2
 
-- ~Aggiungere pulsante conferma in Giacenza~
+- ~~Aggiungere pulsante conferma in Giacenza~~
 
 ## 3
 
-- Spedizioni deve essere suddiviso per tutti gli stati
+- ~~Spedizioni deve essere suddiviso per tutti gli stati~~
 
 ## 4
 
 ### Ogni stato ha le sue azioni
 
-- In revisione solo CAP e TELEFONO
+- ~~In revisione solo CAP e TELEFONO~~
 
 - ↓
 
-- In staging solo vettore
+- ~~In staging solo vettore~~
 
 - ↓
 
-- Pronto per etichettatura solo stampa
+- ~~Pronto per etichettatura solo stampa~~
 
 - ↓
 
-- Pronti per spedire
+- ~~Pronti per spedire~~
 
 # BUGFIX
 
@@ -38,7 +38,7 @@
 
 ## 6
 
-- Aggiunere blocco sul passaggio aree in mancanza di requisiti
+- ~~Aggiunere blocco sul passaggio aree in mancanza di requisiti~~
 
 ## 7
 
@@ -46,7 +46,7 @@
 
 ## 8
 
-- Aggiungere un ruolo e visualizzazione in base ad essi
+- ~~Aggiungere un ruolo e visualizzazione in base ad essi~~
 
 ## 9
 
