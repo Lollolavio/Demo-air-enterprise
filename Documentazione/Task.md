@@ -6,7 +6,7 @@
 
 ## 2
 
-- Aggiungere pulsante conferma in Giacenza
+- ~Aggiungere pulsante conferma in Giacenza~
 
 ## 3
 
@@ -34,7 +34,7 @@
 
 ## 5
 
-- Togliere card filtri rapidi
+- ~Togliere card filtri rapidi~
 
 ## 6
 
