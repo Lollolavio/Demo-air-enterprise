@@ -168,18 +168,17 @@
 
       <div class="tabs" id="sped-tabs">
         <button class="tab-btn active" data-stato="">Tutte</button>
+        <button class="tab-btn" data-stato="In sospeso">In sospeso</button>
+        <button class="tab-btn" data-stato="In revisione">In revisione</button>
+        <button class="tab-btn" data-stato="In staging">In staging</button>
+        <button class="tab-btn" data-stato="Pronta per etichettatura">Pronta per etichettatura</button>
         <button class="tab-btn" data-stato="Pronto per la spedizione">Pronto per la spedizione</button>
+        <button class="tab-btn" data-stato="In giacenza">In giacenza</button>
         <button class="tab-btn" data-stato="In transito">In transito</button>
-        <button class="tab-btn" data-stato="Consegnata">Consegnato</button>
+        <button class="tab-btn" data-stato="Consegnata">Consegnata</button>
       </div>
 
       <div id="dt-spedizioni"></div>
-
-      <div class="card">
-        <h3>Coda di lavorazione — flusso di staging</h3>
-        <p class="small muted">In revisione → (dati validi) → In staging → (vettore assegnato) → Pronta per etichettatura → (stampa LDV) → Pronto per la spedizione. Clicca una card per aprire il dettaglio.</p>
-        <div class="kanban" id="staging-kanban"></div>
-      </div>
     </div>
 
     <!-- Vista dettaglio a tab dedicata -->

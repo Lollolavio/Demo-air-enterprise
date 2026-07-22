@@ -809,7 +809,7 @@ function bulkAssegnaVettore(sel, api) {
                 r.vettore = vet;
                 r.storico.push({ stato: r.stato, data: nowStr(), operatore: 'M. Bruzzone', nota: `Vettore assegnato: ${vet} (massivo)` });
               });
-              api.clearSelection(); api.refresh(); renderKanban();
+              api.clearSelection(); api.refresh();
               toast(`Vettore «${vet}» assegnato a ${sel.rows.length} spedizioni`, 'ok');
             }
           });
@@ -820,10 +820,38 @@ function bulkAssegnaVettore(sel, api) {
   $('#ba-vet', body).addEventListener('change', refreshWarn);
 }
 
+function validaCambioStato(r, nuovoStato) {
+  // Vincoli di transizione di stato: cliente e back office
+  if (nuovoStato === 'Pronta per etichettatura' && !r.vettore) {
+    return { ok: false, msg: `${r.id}: impossibile passare a «Pronta per etichettatura» senza un vettore assegnato` };
+  }
+  if (nuovoStato === 'In staging' && (!r.capValido || !r.telOk)) {
+    return { ok: false, msg: `${r.id}: CAP e telefono devono essere validi per passare a «In staging» (correggere prima i dati)` };
+  }
+  // Da "In revisione" si esce solo promuovendo a "In staging" (o "In sospeso" per sospensione manuale)
+  if (r.stato === 'In revisione' && nuovoStato !== 'In staging' && nuovoStato !== 'In sospeso') {
+    return { ok: false, msg: `${r.id}: da «In revisione» si esce solo con «In staging» (dati validi) o «In sospeso» (sospensione manuale)` };
+  }
+  return { ok: true };
+}
+
 function bulkCambiaStato(sel, api) {
   const body = el('div');
   body.innerHTML = `<p class="small muted">L'azione verrà applicata a <strong>${sel.rows.length}</strong> spedizioni (${sel.mode === 'filter' ? 'intero risultato del filtro corrente' : 'selezione con checkbox'}).</p>
-    <div class="form-row"><label>Nuovo stato</label><select id="bs-st">${STATI_SPED.map(s => `<option>${s}</option>`).join('')}</select></div>`;
+    <div class="form-row"><label>Nuovo stato</label><select id="bs-st">${STATI_SPED.map(s => `<option>${s}</option>`).join('')}</select></div>
+    <div id="bs-warn"></div>`;
+  const refreshWarn = () => {
+    const st = $('#bs-st', body).value;
+    const noVet = st === 'Pronta per etichettatura' ? sel.rows.filter(r => !r.vettore).length : 0;
+    const noDati = st === 'In staging' ? sel.rows.filter(r => !r.capValido || !r.telOk).length : 0;
+    const daRevisione = st !== 'In staging' && st !== 'In sospeso' ? sel.rows.filter(r => r.stato === 'In revisione').length : 0;
+    let html = '';
+    if (noVet)    html += `<div class="warn-box">⚠ <strong>${noVet}</strong> spedizioni senza vettore: non possono passare a «Pronta per etichettatura».</div>`;
+    if (noDati)   html += `<div class="warn-box">⚠ <strong>${noDati}</strong> spedizioni con CAP o telefono non validi: non possono passare a «In staging».</div>`;
+    if (daRevisione) html += `<div class="warn-box">⚠ <strong>${daRevisione}</strong> spedizioni sono attualmente in «In revisione»: da questo stato si esce solo con «In staging» o «In sospeso».</div>`;
+    if (!html)    html = `<div class="info-box">✔ Nessuna restrizione: tutte le ${sel.rows.length} spedizioni possono passare a «${esc(st)}».</div>`;
+    $('#bs-warn', body).innerHTML = html;
+  };
   openModal({
     title: 'Cambia stato a selezione/filtro', body,
     actions: [
@@ -831,19 +859,23 @@ function bulkCambiaStato(sel, api) {
       { label: 'Continua', cls: 'btn-primary', onClick: (b, close) => {
           const st = $('#bs-st', b).value;
           close();
-          const senzaVet = st === 'Pronta per etichettatura' ? sel.rows.filter(r => !r.vettore).length : 0;
+          // Quante verranno effettivamente modificate? (filtrate per i vincoli)
+          const ok = sel.rows.filter(r => validaCambioStato(r, st).ok);
+          const ko = sel.rows.length - ok.length;
           confirmBulk({
-            azione: `Cambia stato in «${st}»`, count: sel.rows.length, mode: sel.mode,
-            warnings: senzaVet ? [`<strong>${senzaVet}</strong> spedizioni non hanno ancora un vettore assegnato: passeranno allo stato richiesto ma non potranno generare la lettera di vettura.`] : [],
+            azione: `Cambia stato in «${st}»`, count: ok.length, mode: sel.mode,
+            warnings: ko ? [`<strong>${ko}</strong> spedizioni non possono passare a «${st}» per i vincoli (CAP/tel non validi, vettore mancante, o transizione non consentita dallo stato attuale) e verranno <strong>saltate</strong>.`] : [],
             onConfirm: () => {
-              sel.rows.forEach(r => { r.stato = st; r.storico.push({ stato: st, data: nowStr(), operatore: 'M. Bruzzone' }); });
-              api.clearSelection(); api.refresh(); renderKanban();
-              toast(`Stato «${st}» applicato a ${sel.rows.length} spedizioni`, 'ok');
+              ok.forEach(r => { r.stato = st; r.storico.push({ stato: st, data: nowStr(), operatore: 'M. Bruzzone' }); });
+              api.clearSelection(); api.refresh();
+              toast(`Stato «${st}» applicato a ${ok.length} spedizioni${ko ? ` (${ko} saltate)` : ''}`, 'ok');
             }
           });
         } }
     ]
   });
+  setTimeout(refreshWarn, 0);
+  $('#bs-st', body).addEventListener('change', refreshWarn);
 }
 
 function bulkApplicaServizio(sel, api) {
@@ -882,16 +914,27 @@ function bulkApplicaServizio(sel, api) {
 function bulkCorreggiCap(sel, api) {
   // opera SEMPRE sull'intero filtro attivo (come da requisito), non solo sulla selezione
   const target = api.getFilteredRows().filter(r => !r.capValido);
+  // Auto-promozione a "In staging" solo per le spedizioni attualmente in revisione
+  // (o in sospeso con CAP non valido): CAP appena corretto, se anche il telefono è ok → staging.
+  const promoCount = () => target.filter(r => (r.stato === 'In revisione' || r.stato === 'In sospeso') && r.telOk).length;
   confirmBulk({
     azione: 'Correggi CAP non validi (mock)', count: target.length, mode: 'filter',
-    dettagli: 'Vengono considerate solo le righe con stato «CAP da correggere» all\'interno del risultato del filtro corrente.',
+    dettagli: 'Vengono considerate solo le righe con stato «CAP da correggere» all\'interno del risultato del filtro corrente. Le spedizioni attualmente in «In revisione» (o «In sospeso») con telefono già valido vengono promosse automaticamente a «In staging».',
     onConfirm: () => {
+      let promo = 0;
       target.forEach(r => {
         const loc = LOCALITA.find(l => l[0] === r.localita);
         r.cap = loc ? loc[2] : '16121'; r.capValido = true;
+        // auto-promozione: CAP appena corretto, tel già ok → passa a staging
+        if ((r.stato === 'In revisione' || r.stato === 'In sospeso') && r.telOk) {
+          r.stato = 'In staging';
+          r.storico.push({ stato: 'In staging', data: nowStr(), operatore: 'M. Bruzzone', nota: 'CAP corretto e validato — promozione automatica a staging' });
+          r.tracking.push({ data: nowStr(), evento: 'CAP corretto — dati anagrafici validati, in attesa di assegnazione vettore', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: 'Auto-promo a staging post-correzione CAP massiva' });
+          promo++;
+        }
       });
       api.refresh();
-      toast(`${target.length} CAP corretti e validati`, 'ok');
+      toast(`${target.length} CAP corretti${promo ? ` — ${promo} promozioni automatiche a «In staging»` : ''}`, 'ok');
     }
   });
 }
@@ -900,11 +943,20 @@ function bulkNormalizzaTel(sel, api) {
   const target = api.getFilteredRows().filter(r => !r.telOk);
   confirmBulk({
     azione: 'Normalizza numeri di telefono (mock)', count: target.length, mode: 'filter',
-    dettagli: 'I numeri in formato non standard vengono riportati al formato internazionale +39 per l\'invio SMS.',
+    dettagli: 'I numeri in formato non standard vengono riportati al formato internazionale +39 per l\'invio SMS. Le spedizioni attualmente in «In revisione» (o «In sospeso») con CAP già valido vengono promosse automaticamente a «In staging».',
     onConfirm: () => {
-      target.forEach(r => { r.telefono = '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999); r.telOk = true; });
+      let promo = 0;
+      target.forEach(r => {
+        r.telefono = '+39 3' + rint(20, 89) + ' ' + rint(1000000, 9999999); r.telOk = true;
+        if ((r.stato === 'In revisione' || r.stato === 'In sospeso') && r.capValido) {
+          r.stato = 'In staging';
+          r.storico.push({ stato: 'In staging', data: nowStr(), operatore: 'M. Bruzzone', nota: 'Telefono normalizzato — promozione automatica a staging' });
+          r.tracking.push({ data: nowStr(), evento: 'Telefono normalizzato — dati anagrafici validati, in attesa di assegnazione vettore', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: 'Auto-promo a staging post-normalizzazione telefono massiva' });
+          promo++;
+        }
+      });
       api.refresh();
-      toast(`${target.length} numeri normalizzati`, 'ok');
+      toast(`${target.length} numeri normalizzati${promo ? ` — ${promo} promozioni automatiche a «In staging»` : ''}`, 'ok');
     }
   });
 }
@@ -942,7 +994,7 @@ function initSpedTable() {
           sel.addEventListener('change', () => {
             r.vettore = sel.value || null;
             toast(`Vettore ${sel.value ? 'assegnato' : 'rimosso'}: ${r.id}`);
-            api.refresh(); renderKanban();
+            api.refresh();
           });
           return sel;
         } },
@@ -955,9 +1007,19 @@ function initSpedTable() {
           sel.value = r.stato;
           sel.addEventListener('click', e => e.stopPropagation());
           sel.addEventListener('change', () => {
-            r.stato = sel.value;
-            r.storico.push({ stato: sel.value, data: nowStr(), operatore: 'M. Bruzzone' });
-            api.refresh(); renderKanban();
+            const target = sel.value;
+            // Validazione: niente cambi di stato che violino i vincoli di flusso
+            const check = validaCambioStato(r, target);
+            if (!check.ok) {
+              toast(check.msg, 'err');
+              sel.value = r.stato; // ripristina la selezione precedente
+              return;
+            }
+            r.stato = target;
+            r.storico.push({ stato: target, data: nowStr(), operatore: 'M. Bruzzone' });
+            r.tracking.push({ data: nowStr(), evento: 'Cambio stato da elenco', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: `Cambio manuale: ${r.stato} → ${target}` });
+            api.refresh();
+            toast(`${r.id} → ${target}`, 'ok');
           });
           box.appendChild(sel);
           return box;
@@ -1025,7 +1087,6 @@ function openLdv(r) {
             r.stato = 'Pronto per la spedizione';
             r.storico.push({ stato: 'Pronto per la spedizione', data: nowStr(), operatore: 'M. Bruzzone' });
             r.tracking.push({ data: nowStr(), evento: 'LDV generata e stampata — spedizione pronta per il ritiro/affidamento al vettore', luogo: 'Centro di smistamento — Genova Bolzaneto', interno: false, operatore: 'M. Bruzzone' });
-            renderKanban();
             if (dtSpedizioni) dtSpedizioni.refresh();
             toast(`LDV ${r.ldv} inviata a: ${stampante} — ${r.id} → Pronto per la spedizione`, 'ok');
           } else {
@@ -1077,7 +1138,6 @@ function renderKanban() {
     root.appendChild(col);
   });
 }
-
 /* ---- Dettaglio spedizione: contenuto condiviso modale/tab ---- */
 function buildShipDetail(r, variant) {
   const wrap = el('div');
@@ -1111,9 +1171,9 @@ function buildShipDetail(r, variant) {
   const sv = el('div', { class: 'detail-block' });
   sv.innerHTML = `<h4>Stato e vettore</h4>
     <dl class="kv">
-      <dt>Stato corrente</dt><dd>${badgeStato(r.stato)}</dd>
-      <dt>Vettore</dt><dd>${r.vettore ? esc(r.vettore) + (vettoreByNome(r.vettore).tipo === 'proprio' ? ' ' + badge('linea propria', 'brand') : ' ' + badge('corriere terzo', 'info')) : badge('non assegnato', 'warn')}</dd>
-      <dt>Servizi accessori</dt><dd>${r.servizi.length ? r.servizi.map(s => `<span class="tag ${servizioCompatibile(s, r.vettore) ? '' : 'incompat'}" title="${servizioCompatibile(s, r.vettore) ? 'Compatibile con il vettore' : 'NON supportato dal vettore assegnato'}">${esc(s)}${servizioCompatibile(s, r.vettore) ? '' : ' ⚠'}</span>`).join('') : '<span class="muted">nessuno</span>'}</dd>
+      <dt>Stato corrente</dt><dd id="sv-stato">${badgeStato(r.stato)}</dd>
+      <dt>Vettore</dt><dd id="sv-vettore">${r.vettore ? esc(r.vettore) + (vettoreByNome(r.vettore).tipo === 'proprio' ? ' ' + badge('linea propria', 'brand') : ' ' + badge('corriere terzo', 'info')) : badge('non assegnato', 'warn')}</dd>
+      <dt>Servizi accessori</dt><dd id="sv-servizi">${r.servizi.length ? r.servizi.map(s => `<span class="tag ${servizioCompatibile(s, r.vettore) ? '' : 'incompat'}" title="${servizioCompatibile(s, r.vettore) ? 'Compatibile con il vettore' : 'NON supportato dal vettore assegnato'}">${esc(s)}${servizioCompatibile(s, r.vettore) ? '' : ' ⚠'}</span>`).join('') : '<span class="muted">nessuno</span>'}</dd>
     </dl>
     <h4 style="margin-top:12px">Storico passaggi di stato</h4>`;
   const ol = el('ul', { class: 'timeline' });
@@ -1185,6 +1245,156 @@ function buildShipDetail(r, variant) {
   tk.appendChild(tl);
   colB.appendChild(tk);
 
+  /* Avanzamento e servizi — presente sia nel modale sia nella tab dedicata.
+     Consente di (a) aggiungere/togliere servizi compatibili con il vettore
+     e (b) avanzare manualmente di stato quando consentito dai vincoli. */
+  const adv = el('div', { class: 'detail-block' });
+  adv.innerHTML = `<h4>Avanzamento e servizi</h4>
+    <p class="tiny">I servizi accessori sono proposti solo se compatibili con il vettore attualmente assegnato. Il tasto di avanzamento è visibile solo se i vincoli di stato sono soddisfatti (vettore assegnato).</p>
+    <div class="detail-row">
+      <div><strong>Servizi attivi</strong> <span id="adv-srv-count" class="tiny muted"></span></div>
+      <div id="adv-srv-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+      <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select id="adv-srv-add" class="inline-select" style="max-width:none"></select>
+        <button class="btn btn-sm" id="adv-srv-add-btn">+ Aggiungi servizio</button>
+        <span class="tiny muted" id="adv-srv-msg"></span>
+      </div>
+    </div>
+    <div class="detail-row" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div><strong>Prossimo passo</strong></div>
+      <div id="adv-next-info" class="tiny muted"></div>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn btn-primary" id="adv-next-btn" style="display:none">Avanza di stato ▸</button>
+    </div>`;
+  colB.appendChild(adv);
+
+  const srvChips = $('#adv-srv-chips', adv);
+  const srvCount = $('#adv-srv-count', adv);
+  const srvAddSel = $('#adv-srv-add', adv);
+  const srvAddBtn = $('#adv-srv-add-btn', adv);
+  const srvMsg = $('#adv-srv-msg', adv);
+  const nextInfo = $('#adv-next-info', adv);
+  const nextBtn = $('#adv-next-btn', adv);
+
+  // helper per sincronizzare la card "Stato e vettore" in colonna A
+  const refreshStatoVettore = () => {
+    const svStato = wrap.querySelector('#sv-stato');
+    if (svStato) svStato.innerHTML = badgeStato(r.stato);
+    const svVet = wrap.querySelector('#sv-vettore');
+    if (svVet) svVet.innerHTML = r.vettore ? esc(r.vettore) + (vettoreByNome(r.vettore).tipo === 'proprio' ? ' ' + badge('linea propria', 'brand') : ' ' + badge('corriere terzo', 'info')) : badge('non assegnato', 'warn');
+    const svServ = wrap.querySelector('#sv-servizi');
+    if (svServ) svServ.innerHTML = r.servizi.length ? r.servizi.map(s => `<span class="tag ${servizioCompatibile(s, r.vettore) ? '' : 'incompat'}" title="${servizioCompatibile(s, r.vettore) ? 'Compatibile con il vettore' : 'NON supportato dal vettore assegnato'}">${esc(s)}${servizioCompatibile(s, r.vettore) ? '' : ' ⚠'}</span>`).join('') : '<span class="muted">nessuno</span>';
+    // aggiorna anche l'header in alto a destra
+    const headBadge = wrap.querySelector('.ship-head .badge');
+    if (headBadge) headBadge.outerHTML = badgeStato(r.stato);
+  };
+
+  const renderServizi = () => {
+    srvChips.innerHTML = '';
+    if (!r.servizi.length) {
+      srvChips.appendChild(el('span', { class: 'muted small' }, 'Nessun servizio attivo'));
+    } else {
+      r.servizi.forEach(s => {
+        const chip = el('span', { class: 'tag' + (servizioCompatibile(s, r.vettore) ? '' : ' incompat') });
+        const title = r.vettore
+          ? (servizioCompatibile(s, r.vettore) ? `Servizio compatibile con ${r.vettore}` : `NON supportato da ${r.vettore}`)
+          : 'Vettore non assegnato: compatibilità non verificabile';
+        chip.title = title;
+        chip.appendChild(document.createTextNode(s + ' '));
+        chip.appendChild(el('button', { class: 'tag-remove', title: 'Rimuovi servizio', onclick: () => {
+          r.servizi = r.servizi.filter(x => x !== s);
+          renderServizi();
+          refreshStatoVettore();
+          toast(`Servizio «${s}» rimosso`, '');
+        } }, '×'));
+        srvChips.appendChild(chip);
+      });
+    }
+    srvCount.textContent = r.servizi.length ? `(${r.servizi.length})` : '';
+
+    // popola il select "aggiungi servizio" solo con i servizi non ancora attivi
+    srvAddSel.innerHTML = '';
+    const disponibili = SERVIZI.filter(s => !r.servizi.includes(s));
+    if (!disponibili.length) {
+      srvAddSel.appendChild(el('option', {}, '— tutti i servizi già attivi —'));
+      srvAddBtn.disabled = true;
+    } else {
+      disponibili.forEach(s => {
+        const ok = servizioCompatibile(s, r.vettore);
+        const opt = el('option', { value: s }, s + (ok ? '' : '  ⚠ non supportato dal vettore'));
+        if (!ok) opt.disabled = true;
+        srvAddSel.appendChild(opt);
+      });
+      srvAddBtn.disabled = false;
+    }
+  };
+
+  const renderAvanzamento = () => {
+    // Definizione dei prossimi passi consentiti dallo stato corrente
+    let nextStato = null, nextLabel = null, blocker = null;
+    if (r.stato === 'In revisione') {
+      nextStato = 'In staging'; nextLabel = 'Valida dati → In staging';
+      if (!r.capValido || !r.telOk) blocker = 'CAP e telefono devono essere validi';
+    } else if (r.stato === 'In staging') {
+      nextStato = 'Pronta per etichettatura'; nextLabel = 'Vettore ok → Pronta per etichettatura';
+      if (!r.vettore) blocker = 'assegnare prima un vettore';
+    } else if (r.stato === 'Pronta per etichettatura') {
+      // Da "Pronta per etichettatura" → "Pronto per la spedizione" resta demandato al flusso LDV
+      nextLabel = null;
+    }
+
+    if (nextStato && nextLabel) {
+      nextInfo.innerHTML = `Da <strong>${esc(r.stato)}</strong> a <strong>${esc(nextStato)}</strong>${blocker ? ` — <span style="color:var(--warn)">blocco: ${esc(blocker)}</span>` : ''}`;
+      // Bottone visibile solo se vettore già selezionato (per "In staging" e "Pronta per etichettatura")
+      // Nel caso di "In revisione" → "In staging" il vincolo è sui dati, non sul vettore.
+      if (r.stato === 'In staging') {
+        nextBtn.style.display = r.vettore ? '' : 'none';
+      } else {
+        nextBtn.style.display = '';
+      }
+      nextBtn.disabled = !!blocker;
+      nextBtn.textContent = nextLabel + ' ▸';
+      nextBtn.dataset.next = nextStato;
+    } else if (r.stato === 'Pronta per etichettatura') {
+      nextInfo.innerHTML = `Stato attuale: <strong>Pronta per etichettatura</strong> — l'avanzamento a «Pronto per la spedizione» avviene alla stampa della LDV`;
+      nextBtn.style.display = 'none';
+    } else {
+      nextInfo.innerHTML = `Stato attuale: <strong>${esc(r.stato)}</strong> — nessun avanzamento automatico disponibile da questo stato`;
+      nextBtn.style.display = 'none';
+    }
+  };
+
+  srvAddBtn.addEventListener('click', () => {
+    const s = srvAddSel.value;
+    if (!s || srvAddSel.selectedOptions[0]?.disabled) return;
+    if (!servizioCompatibile(s, r.vettore)) {
+      toast(`⚠ Servizio «${s}» non supportato dal vettore ${r.vettore}`, 'err');
+      return;
+    }
+    if (!r.servizi.includes(s)) r.servizi.push(s);
+    renderServizi();
+    refreshStatoVettore();
+    toast(`Servizio «${s}» aggiunto`, 'ok');
+  });
+
+  nextBtn.addEventListener('click', () => {
+    const target = nextBtn.dataset.next;
+    if (!target) return;
+    // Vincoli espliciti, anche se già riflessi nello stato del bottone
+    if (r.stato === 'In staging' && !r.vettore) { toast('Assegnare prima un vettore', 'err'); return; }
+    if (r.stato === 'In revisione' && (!r.capValido || !r.telOk)) { toast('CAP e telefono devono essere validi', 'err'); return; }
+    r.stato = target;
+    r.storico.push({ stato: target, data: nowStr(), operatore: 'M. Bruzzone' });
+    r.tracking.push({ data: nowStr(), evento: 'Avanzamento manuale di stato', luogo: 'Back office', interno: true, operatore: 'M. Bruzzone', notaInterna: `Avanzamento a «${target}» dal dettaglio` });
+    renderServizi();
+    renderAvanzamento();
+    refreshStatoVettore();
+    toast(`${r.id} → ${target}`, 'ok');
+  });
+
+  renderServizi();
+  renderAvanzamento();
+
   grid.appendChild(colA); grid.appendChild(colB);
   wrap.appendChild(grid);
   return wrap;
@@ -1216,7 +1426,7 @@ function closeShipTab() {
   $('#sped-detail-wrap').style.display = 'none';
   $('#sped-detail-wrap').innerHTML = '';
   $('#sped-list-wrap').style.display = '';
-  dtSpedizioni.refresh(); renderKanban();
+  dtSpedizioni.refresh();
 }
 
 /* ---- Colli madre ---- */
@@ -2232,7 +2442,6 @@ function initApp() {
 
   initSpedTabs();
   initSpedTable();
-  renderKanban();
   initListini();
   initFlussi();
   initGiacenze();
