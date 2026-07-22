@@ -461,6 +461,15 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand); cu
 .tab-pane.active { display: block; }
 
 .price-meta { font-size: 12px; color: var(--ink-soft); display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+
+/* Header di una versione di listino (attivo/storico): titolo, decorrenza, azioni */
+.listino-header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; padding:12px 14px; background:var(--neutral-bg); border:1px solid var(--line); border-radius:var(--radius-sm); margin-bottom:10px; }
+.listino-header .lh-left { flex:1; min-width:260px; }
+.listino-header .lh-title { font-size:14.5px; }
+.listino-header .lh-title strong { color:var(--ink); }
+.listino-header .lh-meta { color:var(--ink-soft); margin-top:4px; display:flex; gap:8px; flex-wrap:wrap; }
+.listino-header .lh-note { margin-top:6px; color:var(--ink-soft); }
+.listino-header .lh-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:flex-start; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); margin: 4px 0 10px; }
 .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
 
