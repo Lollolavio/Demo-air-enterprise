@@ -680,7 +680,6 @@ const badgeTel = ok => ok ? badge('Formato E.164', 'ok') : badge('Non standard',
 /* ============================================================
    9. SEZIONE SPEDIZIONI
    ============================================================ */
-const spedGlobal = { mandante: '', stato: '', vettore: '' };
 let spedTab = ''; // '' = tab "Tutte"; altrimenti stato della sotto-tab attiva
 let dtSpedizioni = null;
 
@@ -695,26 +694,8 @@ function initSpedTabs() {
   }));
 }
 
-function initSpedGlobalFilters() {
-  const fill = (sel, vals, all) => {
-    sel.innerHTML = `<option value="">${all}</option>` + vals.map(v => `<option>${esc(v)}</option>`).join('');
-  };
-  fill($('#gf-mandante'), MANDANTI, 'Tutti i mandanti');
-  fill($('#gf-stato'), STATI_SPED, 'Tutti gli stati');
-  fill($('#gf-vettore'), VETTORI.map(v => v.nome).concat('— non assegnato —'), 'Tutti i vettori');
-  ['mandante', 'stato', 'vettore'].forEach(k => {
-    $('#gf-' + k).addEventListener('change', e => { spedGlobal[k] = e.target.value; dtSpedizioni.onFiltersChanged(); });
-  });
-}
-
 function spedGlobalFilter(r) {
   if (spedTab && r.stato !== spedTab) return false; // sotto-tab attiva (AND con tutto il resto)
-  if (spedGlobal.mandante && r.mandante !== spedGlobal.mandante) return false;
-  if (spedGlobal.stato && r.stato !== spedGlobal.stato) return false;
-  if (spedGlobal.vettore) {
-    if (spedGlobal.vettore === '— non assegnato —') { if (r.vettore) return false; }
-    else if (r.vettore !== spedGlobal.vettore) return false;
-  }
   return true;
 }
 
@@ -862,8 +843,6 @@ function initSpedTable() {
     selectable: true,
     pageSize: 10,
     globalFilter: spedGlobalFilter,
-    countGlobalActive: () => ['mandante', 'stato', 'vettore'].filter(k => spedGlobal[k]).length,
-    onResetGlobal: () => { spedGlobal.mandante = spedGlobal.stato = spedGlobal.vettore = ''; $('#gf-mandante').value = ''; $('#gf-stato').value = ''; $('#gf-vettore').value = ''; },
     onRowClick: r => openShipDetail(r.id, 'modal'),
     columns: [
       { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>${r.colloMadre ? ' <span class="tag" title="Fa parte di un collo madre">CM</span>' : ''}` },
@@ -2007,7 +1986,6 @@ function initApp() {
     showView(b.dataset.view);
   }));
 
-  initSpedGlobalFilters();
   initSpedTabs();
   initSpedTable();
   renderKanban();
