@@ -124,6 +124,7 @@
     <button class="nav-item" data-view="tracking">Tracking</button>
     <button class="nav-item" data-view="appop">App operativa</button>
     <button class="nav-item" data-view="utenti">Utenti e ruoli</button>
+    <button class="nav-item" data-view="log">Log azioni</button>
     <button class="nav-item" data-view="config">Configurazioni</button>
   </nav>
   <div class="nav-user" id="nav-user" role="button" tabindex="0" title="Apri il profilo utente">
@@ -345,6 +346,18 @@
         <p class="muted small">Seleziona un utente dalla tabella per vedere e simulare la modifica dei permessi.</p>
       </div>
     </div>
+  </section>
+
+  <!-- ==================== LOG AZIONI ==================== -->
+  <section class="view" id="view-log">
+    <div class="view-header">
+      <h1>Log delle azioni</h1>
+      <span class="sub" id="log-counter">Nessuna azione registrata in questa sessione</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btn-log-clear">Svuota log</button>
+    </div>
+    <div class="info-box">🗒️ <strong>Registro di sessione.</strong> Ogni notifica mostrata in basso a destra (assegnazioni vettore, cambi di stato, import, salvataggi, ecc.) viene registrata qui con data/ora, utente, modulo ed esito. Il log è mantenuto solo in memoria del browser: si azzera ricaricando la pagina.</div>
+    <div id="dt-log"></div>
   </section>
 
   <!-- ==================== CONFIGURAZIONI / ARCHITETTURA ==================== -->
