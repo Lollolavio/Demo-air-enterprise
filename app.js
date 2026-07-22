@@ -319,15 +319,19 @@ function normalizzaDatasetDemo() {
 // perché toast() → logAzione() accede a `currentUser` (let, riga 2559) e
 // `VIEW_LABEL` (const, riga 491) dichiarati dopo la riga 317.
 
-/* ---- Colli madre: 3 bancali che raggruppano alcune spedizioni ---- */
-const COLLI_MADRE = [
-  { id: 'CM-2026-0041', descr: 'Bancale Pharma Ligure — lotto 07/26', figli: [] },
-  { id: 'CM-2026-0042', descr: 'Bancale ElettroHouse — elettrodomestici', figli: [] },
-  { id: 'CM-2026-0043', descr: 'Bancale ModaExpress — resi stagionali', figli: [] }
-];
-SPEDIZIONI.slice(0, 11).forEach((s, i) => {
-  const cm = COLLI_MADRE[i % 3];
-  cm.figli.push(s.id); s.colloMadre = cm.id;
+/* ---- Colli madre: 3 bancali che raggruppano alcune spedizioni ----
+ * Il collo madre NON ha un codice a sé (vedi nota più sotto): il suo "id" è
+ * semplicemente l'id della prima spedizione del gruppo, esattamente come nel
+ * flusso di creazione manuale (openNuovoColloMadre). */
+const COLLI_MADRE = [];
+const BANCALI_DESCR = ['Bancale Pharma Ligure — lotto 07/26', 'Bancale ElettroHouse — elettrodomestici', 'Bancale ModaExpress — resi stagionali'];
+const gruppiBancali = [[], [], []];
+SPEDIZIONI.slice(0, 11).forEach((s, i) => gruppiBancali[i % 3].push(s));
+gruppiBancali.forEach((gruppo, i) => {
+  const [madre, ...figli] = gruppo;
+  const cm = { id: madre.id, descr: BANCALI_DESCR[i], figli: figli.map(s => s.id) };
+  figli.forEach(s => { s.colloMadre = cm.id; });
+  COLLI_MADRE.push(cm);
 });
 function statoAggregato(cm) {
   const stati = cm.figli.map(id => spedById(id).stato);
@@ -336,6 +340,11 @@ function statoAggregato(cm) {
   if (cons === 0) return ['Non consegnato', 'err'];
   return [`Consegnato parzialmente (${cons}/${stati.length})`, 'warn'];
 }
+// Il "collo madre" è a tutti gli effetti una spedizione come le altre: è semplicemente
+// il primo collo scansionato sul bancale. isMadre/madreOf derivano il ruolo dalla sola
+// appartenenza a COLLI_MADRE, così non serve tenere un flag duplicato sulla spedizione.
+function isMadre(id) { return COLLI_MADRE.some(cm => cm.id === id); }
+function madreOf(id) { return COLLI_MADRE.find(cm => cm.id === id); }
 
 /* ---------------------------------------------------------- *
  * 3. Flussi in ingresso
@@ -1179,7 +1188,7 @@ function initSpedTable() {
     // le altre sotto-tab (compresa "Tutte").
     hiddenColumns: () => spedTab === 'Pronti per etichettatura' ? ['capValido', 'telefono'] : [],
     columns: [
-      { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>${r.colloMadre ? ' <span class="tag" title="Fa parte di un collo madre">CM</span>' : ''}` },
+      { key: 'id', label: 'ID spedizione', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>${isMadre(r.id) ? ' <span class="tag" title="È il collo madre (primo collo scansionato) di un bancale">MADRE</span>' : r.colloMadre ? ' <span class="tag" title="Fa parte di un collo madre">CM</span>' : ''}` },
       { key: 'mandante', label: 'Mandante', ftype: 'enum' },
       { key: 'destinatario', label: 'Destinatario', ftype: 'text' },
       { key: 'cap', label: 'CAP', ftype: 'text', render: r => `<span class="mono">${esc(r.cap)}</span>` },
@@ -1395,7 +1404,7 @@ function buildShipDetail(r, variant) {
     <h4>Documenti collegati</h4>
     <dl class="kv">
       <dt>Lettera di vettura</dt><dd>${r.ldv ? `<button class="btn-link" onclick="openLdv(spedById('${r.id}'))"><span class="mono">${r.ldv}</span> — apri anteprima</button>` : '<span class="muted">non ancora generata</span>'}</dd>
-      <dt>Collo madre</dt><dd>${r.colloMadre ? `<span class="mono">${r.colloMadre}</span> — <button class="btn-link" onclick="gotoColli()">vai alla vista ad albero</button>` : '<span class="muted">spedizione singola</span>'}</dd>
+      <dt>Collo madre</dt><dd>${isMadre(r.id) ? `<span class="tag" title="Primo collo scansionato sul bancale">Collo madre</span> di ${madreOf(r.id).figli.length} sotto-colli — <button class="btn-link" onclick="gotoColli()">vai alla vista ad albero</button>` : r.colloMadre ? `Sotto-collo di <span class="mono">${r.colloMadre}</span> — <button class="btn-link" onclick="gotoColli()">vai alla vista ad albero</button>` : '<span class="muted">spedizione singola</span>'}</dd>
     </dl>`));
 
   /* Differenziale peso */
@@ -1656,12 +1665,22 @@ function renderColli() {
       <span class="tiny">${cm.figli.length} sotto-colli</span>`;
     li.appendChild(head);
     const body = el('div', { class: 'tp-body' });
+    const madreSped = spedById(cm.id);
+    const madreRow = el('div', { class: 'tc-row', style: 'background:var(--bg-soft,rgba(127,127,127,.08))' });
+    madreRow.innerHTML = `<span class="mono" style="color:var(--brand);font-weight:700">${madreSped.id}</span>
+      <span>${esc(madreSped.destinatario)} · ${esc(madreSped.localita)}</span>
+      ${badgeStato(madreSped.stato)}
+      <span class="tag" title="Primo collo scansionato sul bancale: identifica la provenienza del gruppo">Collo madre</span>
+      <span class="grow"></span>`;
+    madreRow.appendChild(el('button', { class: 'btn btn-sm', onclick: () => openShipDetail(madreSped.id, 'modal') }, 'Dettaglio'));
+    body.appendChild(madreRow);
     cm.figli.forEach(fid => {
       const s = spedById(fid);
       const row = el('div', { class: 'tc-row' });
       row.innerHTML = `<span class="mono" style="color:var(--brand)">${s.id}</span>
         <span>${esc(s.destinatario)} · ${esc(s.localita)}</span>
         ${badgeStato(s.stato)}
+        <span class="tiny" style="opacity:.7">↳ figlio di ${cm.id}</span>
         <span class="tiny">${s.vettore ? esc(s.vettore) : 'vettore da assegnare'}</span>
         <span class="grow"></span>`;
       row.appendChild(el('button', { class: 'btn btn-sm', onclick: () => openShipDetail(s.id, 'modal') }, 'Dettaglio'));
@@ -1697,56 +1716,83 @@ function renderColli() {
   });
 }
 
-/* ---- Creazione nuovo collo madre ---- */
-function nextColloMadreId() {
-  const max = COLLI_MADRE.reduce((a, c) => Math.max(a, parseInt(c.id.split('-').pop(), 10) || 0), 40);
-  return `CM-2026-${String(max + 1).padStart(4, '0')}`;
-}
+/* ---- Creazione nuovo collo madre ----
+ * Simula lo scan fisico in magazzino: il PRIMO collo scansionato diventa
+ * automaticamente il "collo madre" (non ha un codice a sé: è identificato dal
+ * proprio ID/barcode); ogni collo scansionato successivamente diventa un suo
+ * "figlio". L'operatore può correggere il ruolo in qualsiasi momento prima di
+ * confermare, spostando la designazione di "madre" su un altro collo già scansionato. */
 function openNuovoColloMadre() {
-  const disponibili = SPEDIZIONI.filter(s => !s.colloMadre); // solo spedizioni non già in un collo madre
+  const sequenza = []; // ordine di scan: sequenza[0] è sempre il collo madre
+  const disponibili = () => SPEDIZIONI.filter(s => !s.colloMadre && !isMadre(s.id) && !sequenza.includes(s.id));
+
   const body = el('div');
   body.innerHTML = `
-    <div class="form-row"><label>Codice / riferimento</label><input type="text" id="cm-id" value="${nextColloMadreId()}"></div>
-    <div class="form-row"><label>Descrizione</label><input type="text" id="cm-descr" placeholder="es. Bancale TechnoParts — ricambi urgenti"></div>
-    <div class="form-row">
-      <label>Sotto-colli da associare (${disponibili.length} spedizioni disponibili, non ancora in un collo madre)</label>
-      <input type="text" id="cm-search" placeholder="Cerca per ID, destinatario o località…" style="margin-bottom:6px">
-      <div id="cm-list" style="max-height:240px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm)"></div>
-      <div class="tiny" style="margin-top:4px"><span id="cm-count">0</span> selezionate</div>
+    <div class="form-row"><label>Descrizione bancale (facoltativa)</label><input type="text" id="cm-descr" placeholder="es. Bancale TechnoParts — ricambi urgenti"></div>
+    <div class="info-box">📦 Simula lo scan dei colli in arrivo sul bancale: il <strong>primo collo scansionato</strong> diventa automaticamente il <strong>collo madre</strong> (serve solo a tracciare la provenienza); i successivi ne diventano i sotto-colli. Puoi correggere il collo madre in qualsiasi momento con "Imposta come madre".</div>
+    <div class="grid-2" style="align-items:start;gap:16px">
+      <div class="form-row">
+        <label>Colli da scansionare</label>
+        <input type="text" id="cm-search" placeholder="Cerca per ID, destinatario o località…" style="margin-bottom:6px">
+        <div id="cm-avail" style="max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm)"></div>
+      </div>
+      <div class="form-row">
+        <label>Sequenza di scan sul bancale (<span id="cm-count">0</span> colli)</label>
+        <div id="cm-seq" style="max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm)">
+          <div class="dt-empty" style="padding:14px">Nessun collo ancora scansionato.</div>
+        </div>
+      </div>
     </div>`;
-  const scelte = new Set();
-  const listEl = $('#cm-list', body);
-  const renderList = (q = '') => {
+
+  const availEl = $('#cm-avail', body);
+  const seqEl = $('#cm-seq', body);
+
+  function renderAvail(q = '') {
     const ql = q.toLowerCase();
-    const rows = disponibili.filter(s => !ql || s.id.toLowerCase().includes(ql) || s.destinatario.toLowerCase().includes(ql) || s.localita.toLowerCase().includes(ql));
-    listEl.innerHTML = rows.length ? '' : '<div class="dt-empty" style="padding:14px">Nessuna spedizione corrisponde alla ricerca.</div>';
+    const rows = disponibili().filter(s => !ql || s.id.toLowerCase().includes(ql) || s.destinatario.toLowerCase().includes(ql) || s.localita.toLowerCase().includes(ql));
+    availEl.innerHTML = rows.length ? '' : '<div class="dt-empty" style="padding:14px">Nessuna spedizione corrisponde alla ricerca.</div>';
     rows.slice(0, 60).forEach(s => {
-      const row = el('label', { style: 'display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);cursor:pointer;font-size:12.5px' });
-      const cb = el('input', { type: 'checkbox' });
-      cb.checked = scelte.has(s.id);
-      cb.addEventListener('change', () => { cb.checked ? scelte.add(s.id) : scelte.delete(s.id); $('#cm-count', body).textContent = scelte.size; });
-      row.appendChild(cb);
-      row.appendChild(el('span', {}, `<span class="mono" style="color:var(--brand)">${s.id}</span> · ${esc(s.destinatario)} · ${esc(s.localita)} ${badgeStato(s.stato)}`));
-      listEl.appendChild(row);
+      const row = el('div', { style: 'display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);font-size:12.5px' });
+      row.appendChild(el('span', { style: 'flex:1' }, `<span class="mono" style="color:var(--brand)">${s.id}</span> · ${esc(s.destinatario)} · ${esc(s.localita)} ${badgeStato(s.stato)}`));
+      row.appendChild(el('button', { class: 'btn btn-sm', title: 'Simula lo scan di questo collo', onclick: () => { sequenza.push(s.id); renderAvail($('#cm-search', body).value); renderSeq(); } }, 'Scansiona ▸'));
+      availEl.appendChild(row);
     });
-    if (rows.length > 60) listEl.appendChild(el('div', { class: 'tiny', style: 'padding:6px 10px' }, `… e altre ${rows.length - 60}: restringi con la ricerca`));
-  };
-  renderList();
-  $('#cm-search', body).addEventListener('input', e => renderList(e.target.value));
+    if (rows.length > 60) availEl.appendChild(el('div', { class: 'tiny', style: 'padding:6px 10px' }, `… e altre ${rows.length - 60}: restringi con la ricerca`));
+  }
+
+  function renderSeq() {
+    $('#cm-count', body).textContent = sequenza.length;
+    seqEl.innerHTML = '';
+    if (!sequenza.length) { seqEl.innerHTML = '<div class="dt-empty" style="padding:14px">Nessun collo ancora scansionato.</div>'; return; }
+    sequenza.forEach((sid, i) => {
+      const s = spedById(sid);
+      const isM = i === 0;
+      const row = el('div', { style: `display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);font-size:12.5px;${isM ? 'background:var(--bg-soft,rgba(127,127,127,.08))' : ''}` });
+      row.appendChild(el('span', { style: 'flex:1' },
+        `<span class="mono" style="color:var(--brand)">${s.id}</span> · ${esc(s.destinatario)} · ${esc(s.localita)} ${isM ? '<span class="tag" title="Primo collo scansionato">Collo madre</span>' : `<span class="tiny" style="opacity:.7">figlio #${i}</span>`}`));
+      if (!isM) row.appendChild(el('button', { class: 'btn btn-sm', title: 'Rendi questo il collo madre del bancale', onclick: () => { sequenza.splice(i, 1); sequenza.unshift(sid); renderSeq(); } }, 'Imposta come madre'));
+      row.appendChild(el('button', { class: 'btn btn-sm', title: 'Rimuovi dalla sequenza', onclick: () => { sequenza.splice(i, 1); renderAvail($('#cm-search', body).value); renderSeq(); } }, '✕'));
+      seqEl.appendChild(row);
+    });
+  }
+
+  renderAvail();
+  renderSeq();
+  $('#cm-search', body).addEventListener('input', e => renderAvail(e.target.value));
+
   openModal({
     title: 'Nuovo collo madre', body, size: 'wide',
     actions: [
       { label: 'Annulla' },
       { label: 'Crea collo madre', cls: 'btn-primary', keepOpen: true, onClick: (bd, close) => {
-          const id = $('#cm-id', bd).value.trim();
-          if (!id) { toast('Inserisci un codice per il collo madre', 'err'); return false; }
-          if (COLLI_MADRE.some(c => c.id === id)) { toast(`Il codice ${id} esiste già`, 'err'); return false; }
-          if (!scelte.size) { toast('Seleziona almeno un sotto-collo da associare', 'err'); return false; }
-          const nuovo = { id, descr: $('#cm-descr', bd).value.trim() || 'Collo madre senza descrizione', figli: [] };
-          scelte.forEach(sid => { nuovo.figli.push(sid); spedById(sid).colloMadre = id; });
+          if (sequenza.length < 2) { toast('Scansiona almeno un collo madre e un sotto-collo', 'err'); return false; }
+          const madreId = sequenza[0];
+          const figli = sequenza.slice(1);
+          const nuovo = { id: madreId, descr: $('#cm-descr', bd).value.trim() || 'Bancale senza descrizione', figli: [] };
+          figli.forEach(fid => { nuovo.figli.push(fid); spedById(fid).colloMadre = madreId; });
           COLLI_MADRE.push(nuovo);
-          renderColli(); dtSpedizioni.refresh(); // il tag "CM" compare anche in tabella spedizioni
-          toast(`${id} creato con ${scelte.size} sotto-colli`, 'ok');
+          renderColli(); dtSpedizioni.refresh(); // i tag "MADRE"/"CM" compaiono anche in tabella spedizioni
+          toast(`${madreId} impostato come collo madre di ${figli.length} sotto-colli`, 'ok');
           close();
         } }
     ]
