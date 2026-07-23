@@ -5,6 +5,12 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* Sub-tabs vettore compatte */
+.tab-btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 :root {
   --bg: #F2F4F8;
   --surface: #FFFFFF;

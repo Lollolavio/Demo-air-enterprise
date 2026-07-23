@@ -80,9 +80,9 @@ const MANDANTI = [
 ];
 
 const VETTORI = [
-  { id: 'CA', nome: 'Corriere A', tipo: 'terzo' },
-  { id: 'CB', nome: 'Corriere B', tipo: 'terzo' },
-  { id: 'CC', nome: 'Corriere C', tipo: 'terzo' },
+  { id: 'CA', nome: 'Bartolini', tipo: 'terzo' },
+  { id: 'CB', nome: 'DHL', tipo: 'terzo' },
+  { id: 'CC', nome: 'FedEX', tipo: 'terzo' },
   { id: 'P1', nome: 'Padroncino Nord-Ovest', tipo: 'proprio' },
   { id: 'P2', nome: 'Padroncino Riviera',    tipo: 'proprio' },
   { id: 'P3', nome: 'Padroncino Val Padana', tipo: 'proprio' }
@@ -92,11 +92,11 @@ const vettoreByNome = nome => VETTORI.find(v => v.nome === nome);
 const SERVIZI = ['Consegna al piano', 'SMS di preavviso', 'Consegna su appuntamento', 'Contrassegno', 'Reso documenti'];
 // Matrice di compatibilità servizio → vettori che lo supportano
 const COMPAT = {
-  'Consegna al piano':        ['Corriere A', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'SMS di preavviso':         ['Corriere A', 'Corriere B', 'Corriere C', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'Consegna su appuntamento': ['Corriere B', 'Padroncino Nord-Ovest', 'Padroncino Riviera'],
-  'Contrassegno':             ['Corriere A', 'Corriere B'],
-  'Reso documenti':           ['Corriere A', 'Corriere C', 'Padroncino Val Padana']
+  'Consegna al piano':        ['Bartolini', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
+  'SMS di preavviso':         ['Bartolini', 'DHL', 'FedEX', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
+  'Consegna su appuntamento': ['DHL', 'Padroncino Nord-Ovest', 'Padroncino Riviera'],
+  'Contrassegno':             ['Bartolini', 'DHL'],
+  'Reso documenti':           ['Bartolini', 'FedEX', 'Padroncino Val Padana']
 };
 const servizioCompatibile = (servizio, vettoreNome) => !vettoreNome || (COMPAT[servizio] || []).includes(vettoreNome);
 
@@ -329,7 +329,7 @@ const REGOLE_POOL = [
   ['Tutte le spedizioni del mandante', 'SMS di preavviso automatico'],
   ['Destinazione = Milano', 'Consegna al piano attivata'],
   ['Peso > 20 kg', 'Instradamento su linea propria'],
-  ['CAP in zona 191xx', 'Etichetta Corriere B'],
+  ['CAP in zona 191xx', 'Etichetta DHL'],
   ['Campo "note" contiene FRAGILE', 'Flag merce fragile su etichetta'],
   ['Contrassegno presente', 'Blocco in revisione manuale']
 ];
@@ -361,8 +361,13 @@ const FLUSSI_TOTALI = 34;
  *      periodo, 'futuro' se decorrenzaInizio > oggi, 'archiviato' se
  *      decorrenzaFine < oggi. Una decorrenza vuota = sempre attivo.
  * ---------------------------------------------------------- */
-const SCAGLIONI = ['0–2 kg', '2–5 kg', '5–10 kg', '10–20 kg', '20–30 kg', '30–50 kg'];
-const ZONE = ['Nazionale', 'UE', 'Extra-UE'];
+// Scaglioni e zone allineati al formato dei listini vettore reali (es. DHL Express
+// Worldwide Export) che vengono importati da CSV: scaglioni di peso ogni 0.5 kg da
+// 0.5 a 70.0 kg, e 9 zone di destinazione ("Zona 1" … "Zona 9").
+const SCAGLIONI = Array.from({ length: 140 }, (_, i) => (0.5 * (i + 1)).toFixed(1) + ' kg');
+const ZONE = Array.from({ length: 9 }, (_, i) => `Zona ${i + 1}`);
+// Ricava il peso numerico (kg) da uno scaglione tipo "12.5 kg"
+const pesoScaglione = sc => parseFloat(String(sc).replace(',', '.'));
 const OGGI = '2026-07-22'; // demo: data fissa, congelata per i test di auto-arciviazione
 
 // 4a. Listini dei vettori terzi (base costo esterna, non negoziabile)
@@ -370,16 +375,20 @@ const OGGI = '2026-07-22'; // demo: data fissa, congelata per i test di auto-arc
 const LISTINI_VETTORE = {};
 VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
   const rows = [];
-  SCAGLIONI.forEach((sc, si) => ZONE.forEach((z, zi) => {
-    rows.push({
-      vettore: v.nome, scaglione: sc, zona: z,
-      prezzo: +(3.2 + si * 1.9 + zi * 4.5 + vi * 0.45 + rnd() * 0.8).toFixed(2),
-      fuel: +(4 + vi * 1.5 + rnd() * 2).toFixed(1),
-      validita: vi === 1 ? '01/07/2026 – 31/12/2026' : '01/03/2026 – 31/12/2026'
+  SCAGLIONI.forEach(sc => {
+    const peso = pesoScaglione(sc);
+    ZONE.forEach((z, zi) => {
+      rows.push({
+        vettore: v.nome, scaglione: sc, zona: z,
+        prezzo: +(3.2 + peso * 0.42 + zi * 1.35 + vi * 0.45 + rnd() * 0.8).toFixed(2),
+        fuel: +(4 + vi * 1.5 + rnd() * 2).toFixed(1),
+        validita: vi === 1 ? '01/07/2026 – 31/12/2026' : '01/03/2026 – 31/12/2026'
+      });
     });
-  }));
+  });
   LISTINI_VETTORE[v.nome] = {
     rows,
+    rowsByKey: new Map(rows.map(r => [`${r.scaglione}|${r.zona}`, r])),
     aggiornato: ['03/03/2026', '28/06/2026', '15/05/2026'][vi],
     versione: ['03/2026', '07/2026', '05/2026'][vi],
     nota: `Listino ${v.nome} aggiornato dal fornitore il ${['03/03/2026', '28/06/2026', '15/05/2026'][vi]} — dati di esempio`
@@ -395,189 +404,115 @@ function statoListino(listino) {
   return 'attivo';
 }
 
-/* ---- 4b. Listini di costo (versioni) ----
- * Ogni versione: { id, label, decorrenzaInizio, decorrenzaFine, stato, righe[], note }
- * Le righe mantengono la forma { vettore, scaglione, zona, costo, costoVettore, origine, origineTipo }.
+/* ---- 4b. Listini di costo (per vettore, con versioning) ----
+ * LISTINI_COSTO: { [vettoreId]: { versioni: ListinoCosto[] } }
+ * ListinoCosto: { id, vettore, label, decorrenzaInizio, decorrenzaFine, stato, righe[], note, creatoIl, creatoDa }
+ * Riga: { scaglione, zona, costo, costoVettore, origine, origineTipo, valoreOriginale, personalizzazione }
+ * Lo stato è derivato da OGGI (ricalcolato a ogni ricalcolaStatoListini).
+ * Reset totale: partono vuoti. I listini si creano importando un CSV o duplicando uno esistente.
  */
-const LISTINI_COSTO_VERSIONI = [];
+const LISTINI_COSTO = {};
 
-// prima versione: "Listino costo 2026 — attivo" (derivata dai vettori)
-{
-  const righe = [];
-  VETTORI.forEach(v => {
-    SCAGLIONI.forEach((sc, si) => {
-      const base = v.tipo === 'terzo'
-        ? LISTINI_VETTORE[v.nome].rows.find(r => r.scaglione === sc && r.zona === 'Nazionale').prezzo
-        : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2);
-      righe.push({
-        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
-        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
-        costoVettore: v.tipo === 'terzo' ? base : null,
-        origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino',
-        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
-        valoreOriginale: v.tipo === 'terzo' ? base : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2),
-        personalizzazione: null // { tipo: 'perc'|'abs', valore: n, applicataIl: iso }
-      });
-    });
-  });
-  LISTINI_COSTO_VERSIONI.push({
-    id: 'LC-2026-01',
-    label: 'Listino costo 2026 — in vigore',
-    decorrenzaInizio: '2026-01-01',
-    decorrenzaFine: '2026-12-31',
-    stato: 'attivo',
-    righe,
-    note: 'Derivato dai listini vettori terzi (con oneri interni +3%) o calcolato per le linee proprie.',
-    creatoIl: '2026-01-05 09:12',
-    creatoDa: 'A. Vitali'
-  });
-}
-
-// versione storica (2025, archiviata) — presente per popolare lo storico
-{
-  const righe = [];
-  VETTORI.forEach((v, vi) => {
-    SCAGLIONI.forEach((sc, si) => {
-      const base = v.tipo === 'terzo'
-        ? +(3.0 + si * 1.6 + vi * 0.4 + rnd() * 0.6).toFixed(2)
-        : +(2.2 + si * 1.4 + rnd() * 0.5).toFixed(2);
-      righe.push({
-        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
-        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
-        costoVettore: v.tipo === 'terzo' ? base : null,
-        origine: 'Listino storico 2025',
-        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
-        valoreOriginale: base,
-        personalizzazione: null
-      });
-    });
-  });
-  LISTINI_COSTO_VERSIONI.push({
-    id: 'LC-2025-01',
-    label: 'Listino costo 2025 — archiviato',
-    decorrenzaInizio: '2025-01-01',
-    decorrenzaFine: '2025-12-31',
-    stato: 'archiviato',
-    righe,
-    note: 'Versione 2025: prezzi di esempio del periodo precedente (solo consultazione).',
-    creatoIl: '2025-01-08 10:20',
-    creatoDa: 'A. Vitali'
-  });
-}
-
-// versione FUTURA (2027) — già negoziata, in attesa di decorrenza
-{
-  const righe = LISTINI_COSTO_VERSIONI[0].righe.map(r => ({
-    ...r,
-    costo: +(r.costo * 1.04).toFixed(2), // +4% rispetto al 2026 (demo)
-    valoreOriginale: r.costo,
-    personalizzazione: { tipo: 'perc', valore: 4, applicataIl: '2026-06-15' }
-  }));
-  LISTINI_COSTO_VERSIONI.push({
-    id: 'LC-2027-01',
-    label: 'Listino costo 2027 — già negoziato',
-    decorrenzaInizio: '2027-01-01',
-    decorrenzaFine: '2027-12-31',
-    stato: 'futuro',
-    righe,
-    note: 'Rinnovo 2027: ricarico +4% sul listino 2026, in attesa di decorrenza automatica.',
-    creatoIl: '2026-06-15 16:40',
-    creatoDa: 'A. Vitali'
-  });
-}
-
-/* ---- 4c. Listini di vendita per mandante (versioni) ----
- * Ogni versione: { id, mandante, label, decorrenzaInizio, decorrenzaFine, stato, righe[], note, agente, provvigionePct, scontoPct }.
- * Le righe: { vettoreRif, scaglione, zona, costo, costoVettore, vendita, margine, personalizzazione }.
+/* ---- 4c. Listini di vendita (per mandante × vettore, con versioning) ----
+ * LISTINI_VENDITA: { [mandante]: { [vettoreId]: { versioni: ListinoVendita[] } } }
+ * ListinoVendita: { id, mandante, vettore, label, decorrenzaInizio, decorrenzaFine, stato, righe[], agente, provvigionePct, scontoPct, note, creatoIl, creatoDa }
+ * Riga: { scaglione, zona, costo, costoVettore, vendita, margine, personalizzazione }
  */
-const LISTINI_VENDITA_VERSIONI = [];
-let _lcSeq = 1;
-const nextListinoVenditaId = (mandante) => {
-  const same = LISTINI_VENDITA_VERSIONI.filter(l => l.mandante === mandante);
+const LISTINI_VENDITA = {};
+
+/* ---- Helper di accesso ---- */
+// Tag del mandante per gli ID dei listini di vendita (prima parola, uppercase, alphanumeric).
+const mandanteTag = m => ((m || '').split(' ')[0] || 'CLI').replace(/[^A-Za-z]/g, '').toUpperCase();
+// Tag vettore = l'id di VETTORI (CA, CB, CC, P1, P2, P3).
+
+// Prossimo ID listino di costo per un vettore (suffisso -CSV se importato).
+function nextListinoCostoId(vettoreId, anno, isCsv) {
+  const bucket = LISTINI_COSTO[vettoreId] || { versioni: [] };
+  const prefix = 'LC-' + anno + '-' + vettoreId + '-';
+  const same = bucket.versioni.filter(l => l.id.startsWith(prefix));
   const nn = same.length + 1;
-  return `LV-${mandante.split(' ')[0].replace(/[^A-Za-z]/g, '').toUpperCase() || 'CLI'}-${String(nn).padStart(3, '0')}`;
-};
+  return prefix + String(nn).padStart(2, '0') + (isCsv ? '-CSV' : '');
+}
 
-MANDANTI.forEach((m, mi) => {
-  const vetRef = VETTORI[mi % VETTORI.length].nome;
-  const agente = pick(['Ag. Genova Centro', 'Ag. Milano Fiera', 'Ag. Roma EUR', 'Ag. Torino Nord']);
-  const provvigionePct = +(5 + rnd() * 8).toFixed(1);
-  const scontoPct = 0;
+// Prossimo ID listino di vendita per una coppia (mandante, vettore).
+function nextListinoVenditaId2(mandante, vettoreId, isCsv) {
+  const bucket = (LISTINI_VENDITA[mandante] || {})[vettoreId] || { versioni: [] };
+  const mTag = mandanteTag(mandante);
+  const prefix = 'LV-' + mTag + '-' + vettoreId + '-';
+  const same = bucket.versioni.filter(l => l.id.startsWith(prefix));
+  const nn = same.length + 1;
+  return prefix + String(nn).padStart(3, '0') + (isCsv ? '-CSV' : '');
+}
 
-  // 2025 archiviato
-  {
-    const righe = [];
-    SCAGLIONI.forEach((sc, si) => {
-      const costoRef = LISTINI_COSTO_VERSIONI[1].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
-      const vendita = +(costoRef.costo * (1.15 + rnd() * 0.2)).toFixed(2);
-      righe.push({
-        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
-        costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
-        margine: +(vendita - costoRef.costo).toFixed(2),
-        personalizzazione: null
-      });
-    });
-    LISTINI_VENDITA_VERSIONI.push({
-      id: nextListinoVenditaId(m),
-      mandante: m, label: `Listino ${m} — 2025 (archiviato)`,
-      decorrenzaInizio: '2025-01-01', decorrenzaFine: '2025-12-31',
-      stato: 'archiviato', righe, agente, provvigionePct, scontoPct,
-      note: 'Listino 2025 — periodo precedente.',
-      creatoIl: '2025-01-10 11:00', creatoDa: 'A. Vitali'
-    });
-  }
+// Lookup O(1) per riga di listino di costo, dato (vettore, scaglione, zona).
+// Ritorna la riga della versione attiva del listino del vettore, oppure null.
+function lookupRigaCosto(vettoreId, scaglione, zona) {
+  const bucket = LISTINI_COSTO[vettoreId];
+  if (!bucket) return null;
+  const attiva = bucket.versioni.find(v => v.stato === 'attivo');
+  if (!attiva) return null;
+  return attiva.righe.find(r => r.scaglione === scaglione && r.zona === zona) || null;
+}
 
-  // 2026 attivo (con alcune righe in perdita intenzionali)
-  {
-    const righe = [];
-    SCAGLIONI.forEach((sc, si) => {
-      const costoRef = LISTINI_COSTO_VERSIONI[0].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
-      let vendita = +(costoRef.costo * (1.18 + rnd() * 0.22)).toFixed(2);
-      // righe in perdita: alcune sotto il costo interno, almeno una sotto il listino vettore
-      if (mi === 1 && si === 3) vendita = +(costoRef.costo * 0.93).toFixed(2);
-      if (mi === 2 && si === 4 && costoRef.costoVettore) vendita = +(costoRef.costoVettore * 0.9).toFixed(2);
-      if (mi === 4 && si === 5) vendita = +(costoRef.costo * 0.96).toFixed(2);
-      righe.push({
-        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
-        costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
-        margine: +(vendita - costoRef.costo).toFixed(2),
-        personalizzazione: null
-      });
-    });
-    LISTINI_VENDITA_VERSIONI.push({
-      id: nextListinoVenditaId(m),
-      mandante: m, label: `Listino ${m} — 2026 in vigore`,
-      decorrenzaInizio: '2026-01-01', decorrenzaFine: '2026-12-31',
-      stato: 'attivo', righe, agente, provvigionePct, scontoPct,
-      note: 'Listino 2026 — in vigore. Per personalizzare: duplica questo listino.',
-      creatoIl: '2025-12-20 14:30', creatoDa: 'A. Vitali'
-    });
-  }
+// Costruisce la mappa (scaglione|zona -> riga) per la versione attiva del listino del vettore.
+function mappaCostoAttivo(vettoreId) {
+  const bucket = LISTINI_COSTO[vettoreId];
+  if (!bucket) return new Map();
+  const attiva = bucket.versioni.find(v => v.stato === 'attivo');
+  if (!attiva) return new Map();
+  return new Map(attiva.righe.map(r => [`${r.scaglione}|${r.zona}`, r]));
+}
 
-  // 2027 futuro
-  {
-    const src = LISTINI_VENDITA_VERSIONI[LISTINI_VENDITA_VERSIONI.length - 1];
-    const righe = src.righe.map(r => ({
-      ...r,
-      vendita: +(r.vendita * 1.05).toFixed(2),
-      margine: +((r.vendita * 1.05) - r.costo).toFixed(2),
-      personalizzazione: { tipo: 'perc', valore: 5, applicataIl: '2026-06-10' }
-    }));
-    LISTINI_VENDITA_VERSIONI.push({
-      id: nextListinoVenditaId(m),
-      mandante: m, label: `Listino ${m} — 2027 già negoziato`,
-      decorrenzaInizio: '2027-01-01', decorrenzaFine: '2027-12-31',
-      stato: 'futuro', righe, agente, provvigionePct, scontoPct,
-      note: 'Rinnovo 2027: ricarico +5% sul 2026, in attesa di decorrenza.',
-      creatoIl: '2026-06-10 09:00', creatoDa: 'A. Vitali'
-    });
-  }
-});
+// Accessor con auto-creazione del bucket di scope.
+function ensureListinoCosto(vettoreId) {
+  if (!LISTINI_COSTO[vettoreId]) LISTINI_COSTO[vettoreId] = { versioni: [] };
+  return LISTINI_COSTO[vettoreId];
+}
+function ensureListinoVendita(mandante, vettoreId) {
+  if (!LISTINI_VENDITA[mandante]) LISTINI_VENDITA[mandante] = {};
+  if (!LISTINI_VENDITA[mandante][vettoreId]) LISTINI_VENDITA[mandante][vettoreId] = { versioni: [] };
+  return LISTINI_VENDITA[mandante][vettoreId];
+}
+
+// Listino di costo attivo per un dato vettore (o null).
+function listinoCostoAttivo(vettoreId) {
+  const bucket = LISTINI_COSTO[vettoreId];
+  if (!bucket) return null;
+  return bucket.versioni.find(v => v.stato === 'attivo') || null;
+}
+
+// Listino di vendita attivo per una data coppia (mandante, vettore).
+function getListinoVenditaAttivo(mandante, vettoreId) {
+  const byMand = LISTINI_VENDITA[mandante];
+  if (!byMand) return null;
+  const byVet = byMand[vettoreId];
+  if (!byVet) return null;
+  return byVet.versioni.find(v => v.stato === 'attivo') || null;
+}
+
+// Tutte le versioni di un listino (qualunque stato), ordinate per decorrenza disc.
+function versioniListinoCosto(vettoreId) {
+  return (LISTINI_COSTO[vettoreId]?.versioni || []).slice().sort((a, b) =>
+    (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
+}
+function versioniListinoVendita(mandante, vettoreId) {
+  return (LISTINI_VENDITA[mandante]?.[vettoreId]?.versioni || []).slice().sort((a, b) =>
+    (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
+}
+
+// Iteratori piatti usati dalla dashboard e da ricalcolaStatoListini.
+function tutteVersioniCosto() {
+  return VETTORI.flatMap(v => LISTINI_COSTO[v.id]?.versioni || []);
+}
+function tutteVersioniVendita() {
+  return Object.values(LISTINI_VENDITA)
+    .flatMap(byV => Object.values(byV).flatMap(b => b.versioni));
+}
 
 /* ---- Auto-arciviazione: prima di ogni render, ricalcola lo stato in base a OGGI.
  * Le righe storiche che sono 'attive' secondo decorrenza ma 'archiviato' forzato restano tali. */
 function ricalcolaStatoListini() {
-  [...LISTINI_COSTO_VERSIONI, ...LISTINI_VENDITA_VERSIONI].forEach(l => {
+  [...tutteVersioniCosto(), ...tutteVersioniVendita()].forEach(l => {
     l.stato = statoListino(l);
   });
 }
@@ -1986,10 +1921,20 @@ function gotoDiff() {
    10. SEZIONE LISTINI E TARIFFE — 4 sezioni
    ============================================================ */
 
-// Stato corrente della UI
-let lvVettoreCorrente = 'Corriere A';
-let lvMandanteCorrente = MANDANTI[0];
-let lvStorMandanteCorrente = MANDANTI[0];
+// Stato corrente della UI (scope globale: vettore + mandante corrente + mandante storico)
+// vettore/mandante/storMandante = null significa "Tutti" (vista aggregata).
+let lvScope = {
+  vettore: null,        // 'CA' | 'CB' | 'CC' | 'P1' | 'P2' | 'P3' | null (Tutti)
+  mandante: null,        // mandante attivo nel tab "Listino di vendita" | null (Tutti)
+  storMandante: null     // mandante attivo nel tab "Storico listino di vendita" | null (Tutti)
+};
+
+// Nome leggibile del vettore corrente (per i titoli delle tabelle).
+function vettoreLabel() {
+  if (!lvScope.vettore) return 'Tutti i vettori';
+  const v = VETTORI.find(x => x.id === lvScope.vettore);
+  return v ? v.nome : lvScope.vettore;
+}
 
 function initListini() {
   // 1. auto-arciviazione in base a OGGI
@@ -2006,8 +1951,8 @@ function initListini() {
     if (tab) tab.classList.add('active');
     const pane = $('#pane-lv'); if (pane) pane.classList.add('active');
     // forza il mandante selezionato a quello dell'utente
-    lvMandanteCorrente = currentUser.mandante;
-    lvStorMandanteCorrente = currentUser.mandante;
+    lvScope.mandante = currentUser.mandante;
+    lvScope.storMandante = currentUser.mandante;
   }
 
   // 3. tab principali
@@ -2023,50 +1968,86 @@ function initListini() {
     else if (b.dataset.tab === 'lv-stor') renderListinoVenditaStorico();
   }));
 
-  // 4. sotto-tab vettori (per la sezione "Costo")
+  // 4. selettore vettore condiviso dalle quattro sezioni
+  //    Mostra TUTTI i vettori (terzi + propri). Ogni vettore ha i propri listini.
+  //    Cliccando cambia lvScope.vettore e re-renderizza le 4 sezioni + le sub-tabs interne.
+  const refreshAllListini = () => {
+    renderListinoCostoAttivo();
+    renderListinoCostoStorico();
+    renderListinoVenditaAttivo();
+    renderListinoVenditaStorico();
+    // sincronizza sub-tabs interne (se presenti)
+    renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', currentUser?.livello === 'Mandante/Sottocontratto');
+    renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', currentUser?.livello === 'Mandante/Sottocontratto');
+  };
   const vt = $('#lc-vettori-tabs');
-  Object.keys(LISTINI_VETTORE).forEach((nome, i) => {
-    const b = el('button', { class: 'tab-btn' + (i === 0 ? ' active' : ''), onclick: () => {
+  if (vt) {
+    vt.innerHTML = '';
+    const bTutti = el('button', { class: 'tab-btn' + (lvScope.vettore === null ? ' active' : ''), onclick: () => {
       $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
+      bTutti.classList.add('active');
+      lvScope.vettore = null;
+      refreshAllListini();
+    } }, 'Tutti');
+    vt.appendChild(bTutti);
+    VETTORI.forEach((v) => {
+      const b = el('button', { class: 'tab-btn' + (v.id === lvScope.vettore ? ' active' : ''), onclick: () => {
+        $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        lvScope.vettore = v.id;
+        refreshAllListini();
+      } }, esc(v.nome));
+      vt.appendChild(b);
+    });
+  }
+
+  // 5. tab mandante + sub-tabs vettore (listino di vendita attivo)
+  renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', isMandante);
+
+  // 6. tab mandante + sub-tabs vettore (storico vendita)
+  renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', isMandante);
+
+  // 7. render iniziale di tutte le 4 sezioni (e sub-tabs)
+  refreshAllListini();
+}
+
+/* Costruisce la UI a semplici tab "mandante" per le sezioni vendita, nello stesso
+ * stile già usato per il selettore vettore condiviso e per le sub-tabs vettore —
+ * coerente con "Listino di costo" / "Storico listino di costo".
+ * `campoScope` ∈ {'mandante', 'storMandante'} indica quale slot di lvScope aggiornare. */
+function renderMandanteVettoreTabs(sel, campoScope, isMandante) {
+  const mt = $(sel);
+  if (!mt) return;
+  mt.innerHTML = '';
+  const mandantiVisibili = isMandante ? [currentUser.mandante] : MANDANTI;
+  if (!isMandante) {
+    const bTutti = el('button', { class: 'tab-btn tab-btn-sm' + (lvScope[campoScope] === null ? ' active' : ''), onclick: () => {
+      $$('.tab-btn', mt).forEach(x => x.classList.remove('active'));
+      bTutti.classList.add('active');
+      lvScope[campoScope] = null;
+      renderListinoVenditaAttivo();
+      renderListinoVenditaStorico();
+      renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', isMandante);
+      renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', isMandante);
+    } }, 'Tutti');
+    mt.appendChild(bTutti);
+  }
+  mandantiVisibili.forEach(m => {
+    const b = el('button', { class: 'tab-btn tab-btn-sm' + (m === lvScope[campoScope] ? ' active' : ''), onclick: () => {
+      if (isMandante) return;
+      $$('.tab-btn', mt).forEach(x => x.classList.remove('active'));
       b.classList.add('active');
-      lvVettoreCorrente = nome;
-      renderListinoVettore();
-    } }, esc(nome));
-    vt.appendChild(b);
+      // aggiorna solo lo scope del campo passato (mandante o storMandante)
+      lvScope[campoScope] = m;
+      // re-renderizza tutta la sezione listini (anche lo scope comune)
+      renderListinoVenditaAttivo();
+      renderListinoVenditaStorico();
+      // aggiorna classi active su entrambe le tabs mandante
+      renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', isMandante);
+      renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', isMandante);
+    } }, esc(m));
+    mt.appendChild(b);
   });
-
-  // 5. select mandante (listino di vendita attivo)
-  const selM = $('#lv-mandante-sel');
-  if (selM) {
-    if (isMandante) {
-      selM.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
-      selM.disabled = true;
-    } else {
-      selM.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
-      selM.value = lvMandanteCorrente;
-      selM.addEventListener('change', () => { lvMandanteCorrente = selM.value; renderListinoVenditaAttivo(); });
-    }
-  }
-
-  // 6. select mandante (storico vendita)
-  const selS = $('#lv-stor-mandante-sel');
-  if (selS) {
-    if (isMandante) {
-      selS.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
-      selS.disabled = true;
-    } else {
-      selS.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
-      selS.value = lvStorMandanteCorrente;
-      selS.addEventListener('change', () => { lvStorMandanteCorrente = selS.value; renderListinoVenditaStorico(); });
-    }
-  }
-
-  // 7. render iniziale di tutte le 4 sezioni
-  renderListinoCostoAttivo();
-  renderListinoCostoStorico();
-  renderListinoVenditaAttivo();
-  renderListinoVenditaStorico();
-  renderListinoVettore();
 }
 
 /* ---- Header con versione attiva, decorrenza, azioni ---- */
@@ -2098,11 +2079,80 @@ function btnAction(label, cls, onClick) {
 /* ============================================================
    10a. SEZIONE 1 — LISTINO DI COSTO (attivo)
    ============================================================ */
+function apriDettaglioRigaCosto(r, vetNome) {
+  openModal({ title: 'Origine listino di costo', body: `
+    <dl class="confirm-summary">
+      <dt>Vettore</dt><dd>${esc(vetNome)}</dd>
+      <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
+      <dt>Costo interno</dt><dd><strong>${fmtEur(r.costo)}</strong></dd>
+      ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)} <span class="tiny">(+3% oneri interni)</span></dd>` : ''}
+      <dt>Origine</dt><dd>${esc(r.origine)}</dd>
+      ${r.personalizzazione ? `<dt>Personalizzazione</dt><dd>${r.personalizzazione.tipo === 'perc' ? `Ricarico +${r.personalizzazione.valore}%` : `Sovrascrittura assoluta: ${fmtEur(r.personalizzazione.valore)}`} <span class="tiny">(applicata il ${esc(r.personalizzazione.applicataIl || '—')})</span></dd>` : ''}
+    </dl>`, actions: [{ label: 'Chiudi' }] });
+}
+
+const COLONNE_RIGA_COSTO = [
+  { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
+  { key: 'zona', label: 'Zona', ftype: 'enum' },
+  { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.costo)}</strong>` },
+  { key: 'costoVettore', label: 'Listino vettore', ftype: 'number', numeric: true, render: r => r.costoVettore ? fmtEur(r.costoVettore) : '<span class="muted">—</span>' },
+  { key: 'delta', label: 'Δ%', ftype: 'number', numeric: true, sortable: false,
+    render: r => {
+      if (!r.costoVettore) return '<span class="muted">—</span>';
+      const delta = ((r.costo - r.costoVettore) / r.costoVettore) * 100;
+      return `<span style="color:${delta > 0 ? 'var(--warn)' : 'var(--ok)'}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>`;
+    } },
+  { key: 'origine', label: 'Origine / personalizzazione', ftype: 'text', sortable: false, render: r => `<span class="tiny">${esc(r.origine)}${r.personalizzazione ? `<br><strong>Personalizzata:</strong> ${r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore)}` : ''}</span>` }
+];
+
 function renderListinoCostoAttivo() {
-  const l = listinoCostoAttivo();
+  const vet = lvScope.vettore;
   const head = $('#lc-header');
+  if (!head) return;
+
+  // ---- Vista aggregata "Tutti i vettori" ----
+  if (vet === null) {
+    const rows = [];
+    VETTORI.forEach(v => {
+      const l = listinoCostoAttivo(v.id);
+      if (l) rows.push(...l.righe.map(r => Object.assign({}, r, { _vettoreId: v.id, _vettoreNome: v.nome })));
+    });
+    head.innerHTML = `
+      <div class="lh-title"><strong>Listino di costo attivo — Tutti i vettori</strong></div>
+      <div class="lh-meta tiny">Vista aggregata di tutti i listini di costo attualmente in vigore, un vettore per riga.</div>
+      <div class="info-box" style="margin-top:8px">👉 <strong>Duplica listino</strong>, <strong>Importa CSV</strong> e lo <strong>storico</strong> sono azioni legate a un singolo vettore: seleziona un vettore specifico dalla barra in alto (accanto a "Tutti") per farle comparire.</div>
+      ${rows.length ? '' : `<div class="warn-box" style="margin-top:8px">⚠️ Nessun listino di costo attivo per alcun vettore (data odierna: ${OGGI}).</div>`}`;
+    renderDataTable({
+      mount: '#dt-listino-costo', title: 'Righe listino di costo — Tutti i vettori', noun: 'righe di listino',
+      data: () => rows, rowKey: r => r._vettoreId + '|' + r.scaglione + '|' + r.zona, pageSize: 25,
+      onRowClick: r => apriDettaglioRigaCosto(r, r._vettoreNome),
+      columns: [
+        { key: 'vettore', label: 'Vettore', ftype: 'enum', render: r => `<strong>${esc(r._vettoreNome)}</strong>` },
+        ...COLONNE_RIGA_COSTO
+      ]
+    });
+    return;
+  }
+
+  const l = listinoCostoAttivo(vet);
   if (!l) {
-    head.innerHTML = `<div class="warn-box">⚠️ Nessun listino di costo <strong>attivo</strong> al momento (data odierna: ${OGGI}). Vai allo <strong>Storico listino di costo</strong> per crearne uno nuovo duplicando un listino esistente.</div>`;
+    const nVers = (LISTINI_COSTO[vet]?.versioni || []).length;
+    head.innerHTML = `<div class="warn-box">⚠️ Nessun listino di costo <strong>attivo</strong> per il vettore <strong>${esc(vettoreLabel())}</strong> (data odierna: ${OGGI}).${
+      nVers
+        ? ' Vai allo <strong>Storico listino di costo</strong> per attivarne uno.'
+        : ' Clicca <strong>Importa CSV</strong> o <strong>Duplica listino</strong> per crearne uno.'
+    }</div>
+    <div class="lh-actions" style="margin-top:8px">
+      <button class="btn btn-sm btn-primary" id="lc-duplica">Duplica listino</button>
+      <button class="btn btn-sm" id="lc-importa">Importa CSV</button>
+      <button class="btn btn-sm" id="lc-storico">Vai allo storico →</button>
+    </div>`;
+    const d1 = $('#lc-duplica'); if (d1) d1.addEventListener('click', () => openDuplicaListinoCosto(null, vet));
+    const d2 = $('#lc-importa'); if (d2) d2.addEventListener('click', () => openImportCSV('costo', null, vet));
+    const d3 = $('#lc-storico'); if (d3) d3.addEventListener('click', () => {
+      const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lc-stor');
+      if (t) t.click();
+    });
     $('#dt-listino-costo').innerHTML = '';
     return;
   }
@@ -2112,93 +2162,70 @@ function renderListinoCostoAttivo() {
     <button class="btn btn-sm" id="lc-importa">Importa CSV</button>
     <button class="btn btn-sm" id="lc-storico">Vai allo storico →</button>
   `));
-  $('#lc-duplica').addEventListener('click', () => openDuplicaListinoCosto(l));
-  $('#lc-importa').addEventListener('click', () => openImportCSV('costo', l));
+  $('#lc-duplica').addEventListener('click', () => openDuplicaListinoCosto(l, vet));
+  $('#lc-importa').addEventListener('click', () => openImportCSV('costo', l, vet));
   $('#lc-storico').addEventListener('click', () => {
     const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lc-stor');
     if (t) t.click();
   });
 
   renderDataTable({
-    mount: '#dt-listino-costo', title: `Righe listino di costo — ${l.label}`, noun: 'righe di listino',
-    data: () => l.righe, rowKey: r => r.vettore + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
-    onRowClick: r => {
-      openModal({ title: 'Origine listino di costo', body: `
-        <dl class="confirm-summary">
-          <dt>Vettore</dt><dd>${esc(r.vettore)}</dd>
-          <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
-          <dt>Costo interno</dt><dd><strong>${fmtEur(r.costo)}</strong></dd>
-          ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)} <span class="tiny">(+3% oneri interni)</span></dd>` : ''}
-          <dt>Origine</dt><dd>${esc(r.origine)}</dd>
-          ${r.personalizzazione ? `<dt>Personalizzazione</dt><dd>${r.personalizzazione.tipo === 'perc' ? `Ricarico +${r.personalizzazione.valore}%` : `Sovrascrittura assoluta: ${fmtEur(r.personalizzazione.valore)}`} <span class="tiny">(applicata il ${esc(r.personalizzazione.applicataIl || '—')})</span></dd>` : ''}
-        </dl>`, actions: [{ label: 'Chiudi' }] });
-    },
-    columns: [
-      { key: 'vettore', label: 'Vettore', ftype: 'enum' },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'zona', label: 'Zona', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.costo)}</strong>${r.personalizzazione ? ' ' + badge('personalizzata', 'warn') : ''}` },
-      { key: 'costoVettore', label: 'Listino vettore', ftype: 'number', numeric: true, render: r => r.costoVettore ? fmtEur(r.costoVettore) : '<span class="muted">—</span>' },
-      { key: 'delta', label: 'Δ%', ftype: 'number', numeric: true, sortable: false,
-        render: r => {
-          if (!r.costoVettore) return '<span class="muted">—</span>';
-          const delta = ((r.costo - r.costoVettore) / r.costoVettore) * 100;
-          return `<span style="color:${delta > 0 ? 'var(--warn)' : 'var(--ok)'}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>`;
-        } },
-      { key: 'origine', label: 'Origine / personalizzazione', ftype: 'text', sortable: false, render: r => `<span class="tiny">${esc(r.origine)}${r.personalizzazione ? `<br><strong>Personalizzata:</strong> ${r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore)}` : ''}</span>` }
-    ]
+    mount: '#dt-listino-costo', title: `Righe listino di costo — ${esc(vettoreLabel())} — ${esc(l.label)}`, noun: 'righe di listino',
+    data: () => l.righe, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 25,
+    onRowClick: r => apriDettaglioRigaCosto(r, vettoreLabel()),
+    columns: COLONNE_RIGA_COSTO
   });
-}
-
-function listinoCostoAttivo() {
-  return LISTINI_COSTO_VERSIONI.find(l => l.stato === 'attivo') || null;
 }
 
 /* ============================================================
    10b. SEZIONE 2 — STORICO LISTINO DI COSTO
    ============================================================ */
 function renderListinoCostoStorico() {
-  // In "storico" mostriamo TUTTE le versioni di listino di costo,
-  // ordinate per decorrenzaInizio discendente (più recente prima).
-  // Le versioni attive sono "il corrente" — le mostriamo in cima con badge "in vigore".
+  // Mostra tutte le versioni del listino di costo del vettore corrente (o di tutti),
+  // ordinate per decorrenzaInizio discendente.
+  const vet = lvScope.vettore;
+  const isAll = vet === null;
   const head = $('#lc-stor-header');
-  head.innerHTML = '';
-  const tit = el('div');
-  tit.innerHTML = `<div class="lh-title"><strong>Storico listini di costo</strong></div>
-    <div class="lh-meta tiny">Tutte le versioni dei listini di costo interni, dal più recente al più vecchio. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`;
-  head.appendChild(tit);
+  if (head) {
+    head.innerHTML = '';
+    const tit = el('div');
+    tit.innerHTML = isAll
+      ? `<div class="lh-title"><strong>Storico listini di costo — Tutti i vettori</strong></div>
+         <div class="lh-meta tiny">Tutte le versioni dei listini di costo di tutti i vettori, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per crearne una nuova a partire da una esistente.</div>`
+      : `<div class="lh-title"><strong>Storico listini di costo — ${esc(vettoreLabel())}</strong></div>
+         <div class="lh-meta tiny">Tutte le versioni del listino di costo interno del vettore <strong>${esc(vettoreLabel())}</strong>, dal più recente al più vecchio. Clicca <strong>Duplica</strong> per crearne uno nuovo a partire da uno esistente.</div>`;
+    head.appendChild(tit);
+  }
 
-  // costruiamo una vista "una riga per versione" + sotto-tabella righe quando si apre il dettaglio
-  const versioni = [...LISTINI_COSTO_VERSIONI].sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
+  const vettoriDaMostrare = isAll ? VETTORI.map(v => v.id) : [vet];
+  const versioni = vettoriDaMostrare
+    .flatMap(vid => versioniListinoCosto(vid))
+    .sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
   const dataRows = versioni.map(v => ({
     versione: v,
-    id: v.id, label: v.label, decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
+    id: v.id, label: v.label,
+    vettoreNome: (VETTORI.find(x => x.id === v.vettore) || {}).nome || v.vettore,
+    decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
     stato: v.stato, nRighe: v.righe.length, note: v.note,
     creatoIl: v.creatoIl, creatoDa: v.creatoDa
   }));
 
   renderDataTable({
-    mount: '#dt-listino-costo-stor', title: 'Tutte le versioni del listino di costo', noun: 'versioni di listino',
-    data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
+    mount: '#dt-listino-costo-stor', title: isAll ? 'Versioni del listino di costo — Tutti i vettori' : `Versioni del listino di costo — ${esc(vettoreLabel())}`, noun: 'versioni di listino',
+    data: () => dataRows, rowKey: r => r.id, pageSize: 10,
     onRowClick: r => openDettaglioVersioneCosto(r.versione),
     rowActions: (r) => {
       const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
       box.appendChild(btnAction('Visualizza', '', () => openDettaglioVersioneCosto(r.versione)));
-      box.appendChild(btnAction('Duplica', 'btn-primary', () => openDuplicaListinoCosto(r.versione)));
+      box.appendChild(btnAction('Duplica', 'btn-primary', () => openDuplicaListinoCosto(r.versione, r.versione.vettore)));
       box.appendChild(btnAction('Esporta CSV', '', () => esportaListinoCSV(r.versione, 'costo')));
       if (r.versione.stato !== 'archiviato') {
         box.appendChild(btnAction('Archivia', 'btn-danger', () => archiviaListino('costo', r.versione)));
       }
       return box;
     },
-    bulkActions: [
-      { label: 'Duplica selezione', cls: 'btn-primary', run: (sel, api) => {
-          if (!sel.rows.length) { toast('Seleziona almeno una versione', 'warn'); return; }
-          if (sel.rows.length > 1) { toast('La duplicazione multipla non è supportata: duplica una versione alla volta', 'warn'); return; }
-          openDuplicaListinoCosto(sel.rows[0].versione);
-        } }
-    ],
     columns: [
+      ...(isAll ? [{ key: 'vettoreNome', label: 'Vettore', ftype: 'enum', render: r => `<strong>${esc(r.vettoreNome)}</strong>` }] : []),
       { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>` },
       { key: 'label', label: 'Etichetta', ftype: 'text', render: r => `<strong>${esc(r.label)}</strong>` },
       { key: 'decorrenza', label: 'Decorrenza', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.decorrenza)}</span>` },
@@ -2212,15 +2239,15 @@ function renderListinoCostoStorico() {
 }
 
 function openDettaglioVersioneCosto(v) {
+  const vetNome = (VETTORI.find(x => x.id === v.vettore) || {}).nome || vettoreLabel();
   const html = `
-    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
+    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — vettore <strong>${esc(vetNome)}</strong> — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
     <div style="max-height:60vh;overflow-y:auto">
     <table class="dt">
       <thead><tr>
-        <th>Vettore</th><th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Listino vettore</th><th>Personalizzata</th>
+        <th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Listino vettore</th><th>Personalizzata</th>
       </tr></thead>
       <tbody>${v.righe.map(r => `<tr>
-        <td>${esc(r.vettore)}</td>
         <td>${esc(r.scaglione)}</td>
         <td>${esc(r.zona)}</td>
         <td class="num"><strong>${fmtEur(r.costo)}</strong></td>
@@ -2234,7 +2261,7 @@ function openDettaglioVersioneCosto(v) {
     body: html, size: 'wide',
     actions: [
       { label: 'Chiudi' },
-      { label: 'Duplica questa versione', cls: 'btn-primary', onClick: (b, close) => { close(); openDuplicaListinoCosto(v); } },
+      { label: 'Duplica questa versione', cls: 'btn-primary', onClick: (b, close) => { close(); openDuplicaListinoCosto(v, v.vettore || lvScope.vettore); } },
       { label: 'Esporta CSV', onClick: () => esportaListinoCSV(v, 'costo') }
     ]
   });
@@ -2256,17 +2283,108 @@ function archiviaListino(tipo, v) {
 }
 
 /* ============================================================
-   10c. SEZIONE 3 — LISTINO DI VENDITA (attivo, per mandante)
+   10c. SEZIONE 3 — LISTINO DI VENDITA (attivo, per mandante × vettore)
    ============================================================ */
+function apriDettaglioRigaVendita(r, mandNome, vetNome) {
+  openModal({ title: 'Dettaglio riga listino di vendita', body: `
+    <dl class="confirm-summary">
+      ${mandNome ? `<dt>Mandante</dt><dd>${esc(mandNome)}</dd>` : ''}
+      ${vetNome ? `<dt>Vettore</dt><dd>${esc(vetNome)}</dd>` : ''}
+      <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
+      <dt>Costo interno</dt><dd>${fmtEur(r.costo)}</dd>
+      <dt>Prezzo di vendita</dt><dd><strong>${fmtEur(r.vendita)}</strong></dd>
+      <dt>Margine</dt><dd><span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span></dd>
+      ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)}</dd>` : ''}
+      ${r.personalizzazione ? `<dt>Personalizzazione</dt><dd>${r.personalizzazione.tipo === 'perc' ? `Ricarico ${r.personalizzazione.valore >= 0 ? '+' : ''}${r.personalizzazione.valore}%` : `Sovrascrittura assoluta: ${fmtEur(r.personalizzazione.valore)}`} <span class="tiny">(applicata il ${esc(r.personalizzazione.applicataIl || '—')})</span></dd>` : ''}
+    </dl>`, actions: [{ label: 'Chiudi' }] });
+}
+
+const COLONNE_RIGA_VENDITA = [
+  { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
+  { key: 'zona', label: 'Zona', ftype: 'enum' },
+  { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
+  { key: 'vendita', label: 'Prezzo di vendita', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.vendita)}</strong>` },
+  { key: 'margine', label: 'Margine', ftype: 'number', numeric: true, render: r => `<span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span>` },
+  { key: 'alert', label: 'Controllo', sortable: false, render: r => {
+      if (r.costoVettore && r.vendita < r.costoVettore)
+        return `<span class="badge err" title="Il prezzo di vendita è inferiore perfino al listino del vettore terzo di origine">⛔ sotto costo vettore (${fmtEur(r.costoVettore)})</span>`;
+      if (r.vendita < r.costo)
+        return `<span class="badge warn">vendita sotto il costo interno</span>`;
+      return `<span class="badge ok">ok</span>`;
+    } },
+  { key: 'personalizzazione', label: 'Personalizzazione', ftype: 'text', sortable: false, render: r => r.personalizzazione ? badge(r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore), 'warn') : '<span class="muted tiny">no</span>' }
+];
+
 function renderListinoVenditaAttivo() {
   const head = $('#lv-header');
   if (!head) return;
   head.innerHTML = '';
-  // cerco il listino attivo per il mandante selezionato
-  const l = LISTINI_VENDITA_VERSIONI.find(x => x.mandante === lvMandanteCorrente && x.stato === 'attivo');
+  const mand = lvScope.mandante;
+  const vet = lvScope.vettore;
+
+  // ---- Vista aggregata: mandante e/o vettore = "Tutti" ----
+  if (mand === null || vet === null) {
+    const mandanti = mand === null ? MANDANTI : [mand];
+    const vettori = vet === null ? VETTORI.map(v => v.id) : [vet];
+    const rows = [];
+    mandanti.forEach(m => {
+      vettori.forEach(vid => {
+        const l = getListinoVenditaAttivo(m, vid);
+        if (l) rows.push(...l.righe.map(r => Object.assign({}, r, {
+          _mandante: m, _vettoreId: vid, _vettoreNome: (VETTORI.find(x => x.id === vid) || {}).nome || vid
+        })));
+      });
+    });
+    const perdita = rows.filter(r => r.vendita < r.costo).length;
+    const titolo = mand === null && vet === null ? 'Tutti i mandanti · Tutti i vettori'
+      : mand === null ? `Tutti i mandanti · ${esc(vettoreLabel())}`
+      : `${esc(mand)} · Tutti i vettori`;
+    const cosaManca = mand === null && vet === null ? 'un mandante (barra sotto) e un vettore (barra in alto)'
+      : mand === null ? 'un mandante specifico dalla barra qui sotto (accanto a "Tutti")'
+      : 'un vettore specifico dalla barra in alto (accanto a "Tutti")';
+    head.innerHTML = `
+      <div class="lh-title"><strong>Listino di vendita attivo — ${titolo}</strong></div>
+      <div class="lh-meta tiny">Vista aggregata dei listini di vendita attualmente in vigore.</div>
+      <div class="info-box" style="margin-top:8px">👉 <strong>Duplica listino</strong>, <strong>Importa CSV</strong> e lo <strong>storico</strong> richiedono una coppia mandante × vettore specifica: seleziona ${cosaManca} per farle comparire.</div>
+      ${rows.length ? '' : `<div class="warn-box" style="margin-top:8px">⚠️ Nessun listino di vendita attivo per lo scope selezionato.</div>`}`;
+    if (perdita) {
+      const box = el('div', { class: 'err-box', style: 'margin-top:8px' });
+      box.innerHTML = `⛔ <strong>${perdita} righe in perdita</strong> (vendita &lt; costo) nello scope selezionato.`;
+      head.appendChild(box);
+    }
+    renderDataTable({
+      mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${titolo}`, noun: 'righe di listino',
+      data: () => rows, rowKey: r => r._mandante + '|' + r._vettoreId + '|' + r.scaglione + '|' + r.zona, pageSize: 25,
+      rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
+      onRowClick: r => apriDettaglioRigaVendita(r, r._mandante, r._vettoreNome),
+      columns: [
+        ...(mand === null ? [{ key: 'mandante', label: 'Mandante', ftype: 'enum', render: r => `<strong>${esc(r._mandante)}</strong>` }] : []),
+        ...(vet === null ? [{ key: 'vettore', label: 'Vettore', ftype: 'enum', render: r => `<strong>${esc(r._vettoreNome)}</strong>` }] : []),
+        ...COLONNE_RIGA_VENDITA
+      ]
+    });
+    return;
+  }
+
+  // cerco il listino attivo per la coppia (mandante, vettore) selezionata
+  const l = getListinoVenditaAttivo(mand, vet);
   if (!l) {
+    const nVers = (LISTINI_VENDITA[mand]?.[vet]?.versioni || []).length;
+    const vetLabel = vettoreLabel();
     head.appendChild(el('div', { class: 'warn-box' },
-      `⚠️ Nessun listino di vendita <strong>attivo</strong> per il mandante <strong>${esc(lvMandanteCorrente)}</strong>. Vai allo <strong>Storico</strong> e duplica una versione esistente.`));
+      `⚠️ Nessun listino di vendita <strong>attivo</strong> per il mandante <strong>${esc(mand)}</strong> × vettore <strong>${esc(vetLabel)}</strong>.${nVers ? '' : ' Non esiste ancora alcuna versione.'} Duplica un listino esistente, importa un CSV (anche ricevuto direttamente dal mandante) o consulta lo storico.`));
+    const azioni = el('div', { class: 'lh-actions', style: 'margin-top:8px' });
+    azioni.innerHTML = `
+      <button class="btn btn-sm btn-primary" id="lv-duplica-empty">Duplica listino</button>
+      <button class="btn btn-sm" id="lv-importa-empty">Importa CSV</button>
+      <button class="btn btn-sm" id="lv-storico-empty">Vai allo storico →</button>`;
+    head.appendChild(azioni);
+    $('#lv-duplica-empty', azioni).addEventListener('click', () => openDuplicaListinoVendita(null, mand, vet));
+    $('#lv-importa-empty', azioni).addEventListener('click', () => openImportCSV('vendita', { mandante: mand, vettore: vet }, vet));
+    $('#lv-storico-empty', azioni).addEventListener('click', () => {
+      const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lv-stor');
+      if (t) t.click();
+    });
     $('#dt-listino-vendita').innerHTML = '';
     return;
   }
@@ -2276,7 +2394,7 @@ function renderListinoVenditaAttivo() {
     <button class="btn btn-sm" id="lv-storico">Vai allo storico →</button>
   `));
   $('#lv-duplica').addEventListener('click', () => openDuplicaListinoVendita(l));
-  $('#lv-importa').addEventListener('click', () => openImportCSV('vendita', l));
+  $('#lv-importa').addEventListener('click', () => openImportCSV('vendita', l, l.vettore));
   $('#lv-storico').addEventListener('click', () => {
     const t = $$('#listini-tabs .tab-btn').find(b => b.dataset.tab === 'lv-stor');
     if (t) t.click();
@@ -2294,53 +2412,51 @@ function renderListinoVenditaAttivo() {
   }
 
   renderDataTable({
-    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
-    data: () => l.righe, rowKey: r => r.vettoreRif + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
+    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${esc(mand)} · ${esc(vettoreLabel())} — ${esc(l.label)}`, noun: 'righe di listino',
+    data: () => l.righe, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 25,
     rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
-    columns: [
-      { key: 'vettoreRif', label: 'Vettore di rif.', ftype: 'enum' },
-      { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
-      { key: 'zona', label: 'Zona', ftype: 'enum' },
-      { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => fmtEur(r.costo) },
-      { key: 'vendita', label: 'Prezzo di vendita', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.vendita)}</strong>` },
-      { key: 'margine', label: 'Margine', ftype: 'number', numeric: true, render: r => `<span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span>` },
-      { key: 'alert', label: 'Controllo', sortable: false, render: r => {
-          if (r.costoVettore && r.vendita < r.costoVettore)
-            return `<span class="badge err" title="Il prezzo di vendita è inferiore perfino al listino del vettore terzo di origine">⛔ sotto costo vettore (${fmtEur(r.costoVettore)})</span>`;
-          if (r.vendita < r.costo)
-            return `<span class="badge warn">vendita sotto il costo interno</span>`;
-          return `<span class="badge ok">ok</span>`;
-        } },
-      { key: 'personalizzazione', label: 'Personalizzazione', ftype: 'text', sortable: false, render: r => r.personalizzazione ? badge(r.personalizzazione.tipo === 'perc' ? '+' + r.personalizzazione.valore + '%' : fmtEur(r.personalizzazione.valore), 'warn') : '<span class="muted tiny">no</span>' }
-    ]
+    onRowClick: r => apriDettaglioRigaVendita(r, mand, vettoreLabel()),
+    columns: COLONNE_RIGA_VENDITA
   });
 }
 
 /* ============================================================
-   10d. SEZIONE 4 — STORICO LISTINO DI VENDITA (per mandante)
+   10d. SEZIONE 4 — STORICO LISTINO DI VENDITA (per mandante × vettore)
    ============================================================ */
 function renderListinoVenditaStorico() {
+  const smand = lvScope.storMandante;
+  const vet = lvScope.vettore;
+  const isAllMand = smand === null;
+  const isAllVet = vet === null;
   const head = $('#lv-stor-header');
-  head.innerHTML = '';
-  head.appendChild(el('div', {}, `
-    <div class="lh-title"><strong>Storico listini di vendita</strong></div>
-    <div class="lh-meta tiny">Tutte le versioni di listino del mandante selezionato, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`));
+  const titoloScope = isAllMand && isAllVet ? 'Tutti i mandanti · Tutti i vettori'
+    : isAllMand ? `Tutti i mandanti · ${esc(vettoreLabel())}`
+    : isAllVet ? `${esc(smand)} · Tutti i vettori`
+    : `${esc(smand)} · ${esc(vettoreLabel())}`;
+  if (head) {
+    head.innerHTML = '';
+    head.appendChild(el('div', {}, `
+      <div class="lh-title"><strong>Storico listini di vendita — ${titoloScope}</strong></div>
+      <div class="lh-meta tiny">Tutte le versioni del listino di vendita per lo scope selezionato, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`));
+  }
 
-  const versioni = LISTINI_VENDITA_VERSIONI
-    .filter(v => v.mandante === lvStorMandanteCorrente)
+  const mandanti = isAllMand ? MANDANTI : [smand];
+  const vettori = isAllVet ? VETTORI.map(v => v.id) : [vet];
+  const versioni = mandanti
+    .flatMap(m => vettori.flatMap(vid => versioniListinoVendita(m, vid)))
     .sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
   const dataRows = versioni.map(v => ({
     versione: v,
     id: v.id, label: v.label, mandante: v.mandante,
+    vettoreNome: (VETTORI.find(x => x.id === v.vettore) || {}).nome || v.vettore,
     decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
-    stato: v.stato, nRighe: v.righe.length, nPerdite: v.righe.filter(r => r.vendita < r.costo).length,
-    agente: v.agente, provvigionePct: v.provvigionePct, scontoPct: v.scontoPct,
+    stato: v.stato, nRighe: v.righe.length,
     note: v.note, creatoIl: v.creatoIl, creatoDa: v.creatoDa
   }));
 
   renderDataTable({
-    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita per ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
-    data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
+    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita — ${titoloScope}`, noun: 'versioni di listino',
+    data: () => dataRows, rowKey: r => r.id, pageSize: 10,
     onRowClick: r => openDettaglioVersioneVendita(r.versione),
     rowActions: (r) => {
       const box = el('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
@@ -2352,22 +2468,15 @@ function renderListinoVenditaStorico() {
       }
       return box;
     },
-    bulkActions: [
-      { label: 'Duplica selezione', cls: 'btn-primary', run: (sel, api) => {
-          if (!sel.rows.length) { toast('Seleziona almeno una versione', 'warn'); return; }
-          if (sel.rows.length > 1) { toast('La duplicazione multipla non è supportata: duplica una versione alla volta', 'warn'); return; }
-          openDuplicaListinoVendita(sel.rows[0].versione);
-        } }
-    ],
     columns: [
+      ...(isAllMand ? [{ key: 'mandante', label: 'Mandante', ftype: 'enum', render: r => `<strong>${esc(r.mandante)}</strong>` }] : []),
+      ...(isAllVet ? [{ key: 'vettoreNome', label: 'Vettore', ftype: 'enum', render: r => `<strong>${esc(r.vettoreNome)}</strong>` }] : []),
       { key: 'id', label: 'ID', ftype: 'text', render: r => `<span class="mono" style="color:var(--brand);font-weight:600">${r.id}</span>` },
       { key: 'label', label: 'Etichetta', ftype: 'text', render: r => `<strong>${esc(r.label)}</strong>` },
       { key: 'decorrenza', label: 'Decorrenza', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.decorrenza)}</span>` },
       { key: 'stato', label: 'Stato', ftype: 'enum', statusOrder: ['attivo', 'futuro', 'archiviato'],
         render: r => r.stato === 'attivo' ? badge('in vigore', 'ok') : r.stato === 'futuro' ? badge('futuro', 'accent') : badge('archiviato', '') },
       { key: 'nRighe', label: 'Righe', ftype: 'number', numeric: true },
-      { key: 'nPerdite', label: 'In perdita', ftype: 'number', numeric: true, render: r => r.nPerdite ? `<strong style="color:var(--err)">${r.nPerdite}</strong>` : '0' },
-      { key: 'agente', label: 'Agente / provv.', ftype: 'text', render: r => `<span class="tiny">${esc(r.agente || '—')} (${r.provvigionePct || 0}%)</span>` },
       { key: 'creatoIl', label: 'Creato il', ftype: 'text', render: r => `<span class="mono tiny">${esc(r.creatoIl || '—')}</span> <span class="tiny">da <strong>${esc(r.creatoDa || '—')}</strong></span>` },
       { key: 'note', label: 'Note', ftype: 'text', render: r => `<span class="tiny">${esc(r.note || '—')}</span>` }
     ]
@@ -2375,18 +2484,18 @@ function renderListinoVenditaStorico() {
 }
 
 function openDettaglioVersioneVendita(v) {
+  const vetName = v.vettore ? (VETTORI.find(x => x.id === v.vettore)?.nome || v.vettore) : '—';
   const perdita = v.righe.filter(r => r.vendita < r.costo);
   const html = `
-    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — mandante <strong>${esc(v.mandante)}</strong> — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
+    <p class="small muted">Versione: <strong>${esc(v.label)}</strong> (${esc(v.id)}) — mandante <strong>${esc(v.mandante)}</strong> × vettore <strong>${esc(vetName)}</strong> — decorrenza <span class="mono">${esc(v.decorrenzaInizio || '—')}</span> → <span class="mono">${esc(v.decorrenzaFine || '—')}</span></p>
     <p class="tiny">Agente: <strong>${esc(v.agente)}</strong> (provvigione ${v.provvigionePct}%) · Sconto tariffa: ${v.scontoPct || 0}%${v.note ? ' · Note: ' + esc(v.note) : ''}</p>
     ${perdita.length ? `<div class="err-box">⛔ <strong>${perdita.length} righe in perdita</strong> in questa versione.</div>` : ''}
     <div style="max-height:55vh;overflow-y:auto;margin-top:8px">
     <table class="dt">
       <thead><tr>
-        <th>Vettore rif.</th><th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Vendita</th><th class="num">Margine</th><th>Personalizzata</th><th>Stato</th>
+        <th>Scaglione</th><th>Zona</th><th class="num">Costo</th><th class="num">Vendita</th><th class="num">Margine</th><th>Personalizzata</th><th>Stato</th>
       </tr></thead>
       <tbody>${v.righe.map(r => `<tr${r.vendita < r.costo ? ' class="row-danger"' : ''}>
-        <td>${esc(r.vettoreRif)}</td>
         <td>${esc(r.scaglione)}</td>
         <td>${esc(r.zona)}</td>
         <td class="num">${fmtEur(r.costo)}</td>
@@ -2412,23 +2521,32 @@ function openDettaglioVersioneVendita(v) {
    10e. Listino vettore (consultazione, dentro la sezione Costo)
    ============================================================ */
 function renderListinoVettore() {
-  const lv = LISTINI_VETTORE[lvVettoreCorrente];
-  if (!lv) return;
-  $('#lc-vettori-meta').innerHTML = `
+  const vetName = vettoreLabel();
+  const lv = LISTINI_VETTORE[vetName];
+  const meta = $('#lc-vettori-meta');
+  const tab = $('#dt-listino-vettore');
+  if (!lv) {
+    if (meta) meta.innerHTML = `<span>ℹ️ <strong>${esc(vetName)}</strong> è un vettore proprio (padroncino): non esiste un listino vettore esterno di riferimento. Le tariffe di costo sono calcolate internamente.</span>`;
+    if (tab) tab.innerHTML = '';
+    return;
+  }
+  if (meta) meta.innerHTML = `
     <span>📄 <strong>${esc(lv.nota)}</strong></span>
     <span>Versione: <span class="mono">${lv.versione}</span></span>
     <span class="tiny">Dato di partenza esterno, non negoziabile da CT Solution: base per i listini di costo interni.</span>`;
-  renderDataTable({
-    mount: '#dt-listino-vettore', title: `Listino ${lvVettoreCorrente}`, noun: 'righe di listino',
-    data: () => lv.rows, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 10,
-    columns: [
-      { key: 'scaglione', label: 'Scaglione peso', ftype: 'enum' },
-      { key: 'zona', label: 'Zona', ftype: 'enum' },
-      { key: 'prezzo', label: 'Prezzo', ftype: 'number', numeric: true, render: r => fmtEur(r.prezzo) },
-      { key: 'fuel', label: 'Fuel surcharge', ftype: 'number', numeric: true, render: r => r.fuel.toFixed(1) + ' %' },
-      { key: 'validita', label: 'Validità', ftype: 'enum', render: r => `<span class="mono tiny">${esc(r.validita)}</span>` }
-    ]
-  });
+  if (tab) {
+    renderDataTable({
+      mount: '#dt-listino-vettore', title: `Listino ${esc(vetName)}`, noun: 'righe di listino',
+      data: () => lv.rows, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 10,
+      columns: [
+        { key: 'scaglione', label: 'Scaglione peso', ftype: 'enum' },
+        { key: 'zona', label: 'Zona', ftype: 'enum' },
+        { key: 'prezzo', label: 'Prezzo', ftype: 'number', numeric: true, render: r => fmtEur(r.prezzo) },
+        { key: 'fuel', label: 'Fuel surcharge', ftype: 'number', numeric: true, render: r => r.fuel.toFixed(1) + ' %' },
+        { key: 'validita', label: 'Validità', ftype: 'enum', render: r => `<span class="mono tiny">${esc(r.validita)}</span>` }
+      ]
+    });
+  }
 }
 
 /* ============================================================
@@ -2455,40 +2573,58 @@ function validaRigheVendita(righe) {
   return { ok: problemi.length === 0, problemi };
 }
 
-function openDuplicaListinoCosto(src) {
+function openDuplicaListinoCosto(src, vettoreId) {
+  const vet = vettoreId || (src && src.vettore) || lvScope.vettore;
+  const etichDefault = src && src.righe && src.righe.length
+    ? `${src.label} (copia)`
+    : `Listino di costo ${vettoreLabel()} — nuovo`;
+  const noteDefault = src && src.righe && src.righe.length
+    ? 'Duplicato da ' + src.id
+    : 'Nuovo listino (da compilare)';
   openDuplicaModal({
     tipo: 'costo',
-    src,
+    src: src || { id: 'LC-NUOVO', label: etichDefault, vettore: vet, righe: [], note: '' },
+    vettoreId: vet,
     campiIntestazione: [
-      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: `${src.label} (copia)` },
+      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: etichDefault },
       { key: 'decorrenzaInizio', label: 'Decorrenza inizio', type: 'date', required: true, default: '2027-01-01' },
       { key: 'decorrenzaFine', label: 'Decorrenza fine', type: 'date', default: '2027-12-31' },
-      { key: 'note', label: 'Note', type: 'text', default: 'Duplicato da ' + src.id }
+      { key: 'note', label: 'Note', type: 'text', default: noteDefault }
     ]
   });
 }
 
-function openDuplicaListinoVendita(src) {
+function openDuplicaListinoVendita(src, mandForzato, vetForzato) {
+  const mand = src ? src.mandante : (mandForzato || lvScope.mandante);
+  const vet = (src && src.vettore) || vetForzato || lvScope.vettore;
+  const vetName = (VETTORI.find(v => v.id === vet) || {}).nome || vet;
+  const srcEffettivo = src || { id: 'LV-NUOVO', label: `${mand} · ${vetName} — nuovo`, mandante: mand, vettore: vet, righe: [], note: '', agente: '', provvigionePct: 0, scontoPct: 0 };
   openDuplicaModal({
     tipo: 'vendita',
-    src,
+    src: srcEffettivo,
+    vettoreId: vet,
+    mandante: mand,
     campiIntestazione: [
-      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: `${src.mandante} — duplicato` },
+      { key: 'etichetta', label: 'Etichetta nuovo listino', type: 'text', required: true, default: src ? `${src.mandante} · ${vetName} — duplicato` : `${mand} · ${vetName} — nuovo` },
       { key: 'decorrenzaInizio', label: 'Decorrenza inizio', type: 'date', required: true, default: '2027-01-01' },
       { key: 'decorrenzaFine', label: 'Decorrenza fine', type: 'date', default: '2027-12-31' },
-      { key: 'agente', label: 'Agente di riferimento', type: 'text', default: src.agente || '' },
-      { key: 'provvigionePct', label: 'Provvigione agente (%)', type: 'number', default: src.provvigionePct || 0 },
-      { key: 'scontoPct', label: 'Sconto sulla tariffa totale (%)', type: 'number', default: src.scontoPct || 0 },
-      { key: 'note', label: 'Note', type: 'text', default: 'Duplicato da ' + src.id }
+      { key: 'agente', label: 'Agente di riferimento', type: 'text', default: srcEffettivo.agente || '' },
+      { key: 'provvigionePct', label: 'Provvigione agente (%)', type: 'number', default: srcEffettivo.provvigionePct || 0 },
+      { key: 'scontoPct', label: 'Sconto sulla tariffa totale (%)', type: 'number', default: srcEffettivo.scontoPct || 0 },
+      { key: 'note', label: 'Note', type: 'text', default: src ? 'Duplicato da ' + src.id : 'Nuovo listino (da compilare)' }
     ]
   });
 }
 
-function openDuplicaModal({ tipo, src, campiIntestazione }) {
+function openDuplicaModal({ tipo, src, campiIntestazione, vettoreId, mandante }) {
   const isVendita = tipo === 'vendita';
+  const vetName = vettoreLabel();
+  const headerDesc = isVendita
+    ? `del listino di vendita per il mandante <strong>${esc(src.mandante)}</strong> × vettore <strong>${esc(vetName)}</strong>`
+    : `del listino di costo interno del vettore <strong>${esc(vetName)}</strong>`;
   const b = el('div');
   b.innerHTML = `
-    <p class="small muted">Stai duplicando <strong>${esc(src.label)}</strong> (${esc(src.id)}). Scegli la modalità di personalizzazione: le modifiche vengono applicate a una copia che sarà salvata come <strong>nuova versione</strong>${isVendita ? ' del listino di vendita per <strong>' + esc(src.mandante) + '</strong>' : ' del listino di costo interno'}.</p>
+    <p class="small muted">Stai duplicando <strong>${esc(src.label)}</strong> (${esc(src.id)}). Scegli la modalità di personalizzazione: le modifiche vengono applicate a una copia che sarà salvata come <strong>nuova versione</strong> ${headerDesc}.</p>
     <h4 style="margin-top:10px">Intestazione nuovo listino</h4>
     <div id="dup-head-fields"></div>
     <h4 style="margin-top:14px">Modalità di personalizzazione</h4>
@@ -2526,7 +2662,6 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
     const isAbs = modo === 'abs';
     const table = el('table', { class: 'dt' });
     table.innerHTML = `<thead><tr>
-      <th>${isVendita ? 'Vettore' : 'Vettore'}</th>
       <th>Scaglione</th>
       <th>Zona</th>
       <th class="num">Costo</th>
@@ -2538,8 +2673,7 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
     const tb = el('tbody');
     editabili.forEach((r, i) => {
       const tr = el('tr', { class: r._editVal < r.costo ? 'row-danger' : '' });
-      tr.innerHTML = `<td>${esc(r[isVendita ? 'vettoreRif' : 'vettore'])}</td>
-        <td>${esc(r.scaglione)}</td>
+      tr.innerHTML = `<td>${esc(r.scaglione)}</td>
         <td>${esc(r.zona)}</td>
         <td class="num">${fmtEur(r.costo)}</td>
         <td class="num">${fmtEur(r[isVendita ? 'vendita' : 'costo'])}</td>
@@ -2563,9 +2697,9 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
           if (editabili[ix]._editVal < editabili[ix].costo) tr.classList.add('row-danger'); else tr.classList.remove('row-danger');
           const tds = tr.querySelectorAll('td');
           const newMargine = editabili[ix]._editVal - editabili[ix].costo;
-          tds[6].textContent = (newMargine >= 0 ? '+' : '') + fmtEur(newMargine);
-          tds[6].style.color = newMargine < 0 ? 'var(--err)' : 'var(--ok)';
-          tds[7].innerHTML = editabili[ix]._editVal < editabili[ix].costo ? '<span class="badge err">sotto costo</span>' : '<span class="badge ok">ok</span>';
+          tds[5].textContent = (newMargine >= 0 ? '+' : '') + fmtEur(newMargine);
+          tds[5].style.color = newMargine < 0 ? 'var(--err)' : 'var(--ok)';
+          tds[6].innerHTML = editabili[ix]._editVal < editabili[ix].costo ? '<span class="badge err">sotto costo</span>' : '<span class="badge ok">ok</span>';
           checkWarn();
         });
       });
@@ -2577,7 +2711,7 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
     if (!isVendita) { $('#dup-warn', b).style.display = 'none'; return; }
     const problemi = editabili.filter(r => r._editVal < r.costo).map(r => ({ r, msg: r.costoVettore && r._editVal < r.costoVettore ? `sotto vettore (${fmtEur(r.costoVettore)})` : `sotto costo interno (${fmtEur(r.costo)})` }));
     if (problemi.length) {
-      const html = `⛔ <strong>${problemi.length} righe in perdita</strong> (vendita &lt; costo). Per procedere è richiesta una conferma esplicita.<br><ul style="margin:6px 0 0 18px">${problemi.slice(0, 8).map(p => `<li><span class="mono">${esc(p.r.vettoreRif)} · ${esc(p.r.scaglione)}</span>: ${esc(p.msg)}</li>`).join('')}</ul>${problemi.length > 8 ? `<li class="tiny">… e altre ${problemi.length - 8}</li>` : ''}`;
+      const html = `⛔ <strong>${problemi.length} righe in perdita</strong> (vendita &lt; costo). Per procedere è richiesta una conferma esplicita.<br><ul style="margin:6px 0 0 18px">${problemi.slice(0, 8).map(p => `<li><span class="mono">${esc(p.r.scaglione)}</span>: ${esc(p.msg)}</li>`).join('')}</ul>${problemi.length > 8 ? `<li class="tiny">… e altre ${problemi.length - 8}</li>` : ''}`;
       $('#dup-warn', b).style.display = ''; $('#dup-warn', b).innerHTML = html;
     } else {
       $('#dup-warn', b).style.display = 'none';
@@ -2608,7 +2742,7 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
                 actions: [
                   { label: 'Annulla' },
                   { label: `Forza creazione con ${problemi.length} righe in perdita`, cls: 'btn-danger', onClick: () => {
-                      finalizeDuplicaCreaListino(tipo, src, head, editabili, true);
+                      finalizeDuplicaCreaListino(tipo, src, head, editabili, true, { vettoreId, mandante });
                       close();
                     } }
                 ]
@@ -2616,7 +2750,7 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
               return false; // non chiudere la modale di duplicazione
             }
           }
-          finalizeDuplicaCreaListino(tipo, src, head, editabili, false);
+          finalizeDuplicaCreaListino(tipo, src, head, editabili, false, { vettoreId, mandante });
           close();
         } }
     ]
@@ -2628,21 +2762,29 @@ function openDuplicaModal({ tipo, src, campiIntestazione }) {
   }, 0);
 }
 
-function finalizeDuplicaCreaListino(tipo, src, head, editabili, forzato) {
+function finalizeDuplicaCreaListino(tipo, src, head, editabili, forzato, scope) {
   const isVendita = tipo === 'vendita';
+  const { vettoreId, mandante } = scope || {};
+  const vet = vettoreId || (src && src.vettore) || lvScope.vettore;
+  const mand = mandante || (src && src.mandante) || lvScope.mandante;
   const nuoveRighe = src.righe.map((r, i) => {
     const e = editabili[i];
     if (isVendita) {
       return {
-        ...r,
+        scaglione: r.scaglione, zona: r.zona,
+        costo: r.costo, costoVettore: r.costoVettore,
         vendita: e._editVal,
         margine: +(e._editVal - r.costo).toFixed(2),
         personalizzazione: { tipo: $('#dup-modo')?.value === 'perc' ? 'perc' : 'abs', valore: $('#dup-modo')?.value === 'perc' ? +(parseFloat($('#dup-perc-val')?.value) || 0) : e._editVal, applicataIl: nowStr().slice(0, 10) }
       };
     } else {
       return {
-        ...r,
+        scaglione: r.scaglione, zona: r.zona,
         costo: e._editVal,
+        costoVettore: r.costoVettore,
+        origine: r.origine || 'Duplicato/inserito manualmente',
+        origineTipo: r.origineTipo || 'interna',
+        valoreOriginale: r.valoreOriginale ?? e._editVal,
         personalizzazione: { tipo: $('#dup-modo')?.value === 'perc' ? 'perc' : 'abs', valore: $('#dup-modo')?.value === 'perc' ? +(parseFloat($('#dup-perc-val')?.value) || 0) : e._editVal, applicataIl: nowStr().slice(0, 10) }
       };
     }
@@ -2653,27 +2795,23 @@ function finalizeDuplicaCreaListino(tipo, src, head, editabili, forzato) {
   const decorrenzaFine = head.decorrenzaFine;
   let stato = OGGI < decorrenzaInizio ? 'futuro' : (decorrenzaFine && OGGI > decorrenzaFine ? 'archiviato' : 'attivo');
 
-  // genera id
+  // genera id per scope
   let id;
   if (isVendita) {
-    const same = LISTINI_VENDITA_VERSIONI.filter(x => x.mandante === src.mandante);
-    const nn = same.length + 1;
-    const mTag = (src.mandante.split(' ')[0] || 'CLI').replace(/[^A-Za-z]/g, '').toUpperCase();
-    id = `LV-${mTag}-${String(nn).padStart(3, '0')}`;
+    id = nextListinoVenditaId2(mand, vet, false);
   } else {
     const anno = decorrenzaInizio.slice(0, 4);
-    const same = LISTINI_COSTO_VERSIONI.filter(x => x.id.startsWith('LC-' + anno + '-'));
-    const nn = same.length + 1;
-    id = `LC-${anno}-${String(nn).padStart(2, '0')}`;
+    id = nextListinoCostoId(vet, anno, false);
   }
 
-  // auto-arciviazione: se la nuova versione entra in vigore e sostituisce un attivo
-  // per lo stesso scope, il precedente attivo viene marcato archiviato.
+  // auto-arciviazione: solo stesso scope
   if (stato === 'attivo' || stato === 'futuro') {
-    const coll = isVendita ? LISTINI_VENDITA_VERSIONI : LISTINI_COSTO_VERSIONI;
-    coll.filter(x => x.stato === stato && (isVendita ? x.mandante === src.mandante : true) && x.id !== id)
+    const versioniStessoScope = isVendita
+      ? ensureListinoVendita(mand, vet).versioni
+      : ensureListinoCosto(vet).versioni;
+    versioniStessoScope
+      .filter(x => x.stato === stato && x.id !== id)
       .forEach(prev => {
-        // se la decorrenza del nuovo è <= di quella del prev attivo/futuro, il prev passa in archiviato
         if (decorrenzaInizio <= (prev.decorrenzaInizio || '')) {
           prev.stato = 'archiviato';
           prev.decorrenzaFine = decorrenzaInizio;
@@ -2692,18 +2830,23 @@ function finalizeDuplicaCreaListino(tipo, src, head, editabili, forzato) {
     creatoDa: currentUser?.nome || 'Sistema'
   };
   if (isVendita) {
-    nuovo.mandante = src.mandante;
+    nuovo.mandante = mand;
+    nuovo.vettore = vet;
     nuovo.agente = head.agente || src.agente;
     nuovo.provvigionePct = parseFloat(head.provvigionePct) || 0;
     nuovo.scontoPct = parseFloat(head.scontoPct) || 0;
-    LISTINI_VENDITA_VERSIONI.push(nuovo);
+    ensureListinoVendita(mand, vet).versioni.push(nuovo);
   } else {
-    LISTINI_COSTO_VERSIONI.push(nuovo);
+    nuovo.vettore = vet;
+    ensureListinoCosto(vet).versioni.push(nuovo);
   }
   ricalcolaStatoListini();
-  // refresh di tutte le 4 viste
+  // refresh di tutte le 4 viste + sub-tabs
   renderListinoCostoAttivo(); renderListinoCostoStorico();
   renderListinoVenditaAttivo(); renderListinoVenditaStorico();
+  const isMand = currentUser?.livello === 'Mandante/Sottocontratto';
+  renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', isMand);
+  renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', isMand);
   toast(`Creato listino ${id} (${stato})${forzato ? ' con righe in perdita confermate esplicitamente' : ''}`, forzato ? 'warn' : 'ok');
 }
 
@@ -2738,44 +2881,120 @@ function parseCSVText(text) {
   return rows;
 }
 
-function openImportCSV(tipo, listinoRiferimento) {
+/* Rileva ed estrae le tabelle "tariffe peso × zona" da un export vettore tipo DHL
+ * (righe intestate "KG,,Zona 1,Zona 2,…"). Le altre sezioni del file (supplemento oltre
+ * soglia, premium orari, note legali, blocchi firma) vengono ignorate automaticamente:
+ * non hanno un'intestazione che inizia con "KG" seguita da colonne "Zona N" e quindi
+ * non vengono mai riconosciute come tabella dati.
+ * Se nel file compaiono più tabelle sovrapposte (es. "Documenti fino a 2kg" e poi
+ * "Non documenti / Documenti oltre 2.5kg"), l'ultima tabella letta vince sulle
+ * combinazioni scaglione+zona in comune. Ritorna una Map "scaglione|zona" -> costo.
+ */
+function estraiTabellePesoZona(rawRows) {
+  const risultato = new Map();
+  let zonaCols = null; // [{ ix, label }] quando siamo dentro una tabella riconosciuta
+  rawRows.forEach(row => {
+    const primaCella = (row[0] || '').trim();
+    const colonneZona = row
+      .map((cell, ix) => ({ cell: (cell || '').trim(), ix }))
+      .filter(c => /^zona\s*\d+$/i.test(c.cell));
+    // intestazione di una tabella peso/zona: prima colonna "KG" + almeno 2 colonne "Zona N"
+    if (primaCella.toLowerCase() === 'kg' && colonneZona.length >= 2) {
+      zonaCols = colonneZona.map(c => ({ ix: c.ix, label: c.cell.replace(/\s+/g, ' ') }));
+      return;
+    }
+    if (!zonaCols) return; // fuori da una tabella riconosciuta: riga ignorata (supplementi, premium, note legali, firme…)
+    const peso = parseFloat(primaCella.replace(',', '.'));
+    if (!primaCella || isNaN(peso)) { zonaCols = null; return; } // riga vuota/non numerica = fine tabella
+    const scaglione = peso.toFixed(1) + ' kg';
+    zonaCols.forEach(zc => {
+      const raw = (row[zc.ix] || '').trim();
+      if (!raw) return; // tariffa non disponibile per questo peso/zona
+      const val = parseFloat(raw.replace(',', '.'));
+      if (!isNaN(val)) risultato.set(`${scaglione}|${zc.label}`, val);
+    });
+  });
+  return risultato;
+}
+
+function openImportCSV(tipo, listinoRiferimento, vettoreId) {
+  // vettoreId è obbligatorio per costo; per vendita si ricava da listinoRiferimento.vettore
+  // o si usa lo scope corrente come fallback.
+  const vetId = vettoreId
+    || (listinoRiferimento && listinoRiferimento.vettore)
+    || lvScope.vettore;
+  const vetName = (VETTORI.find(v => v.id === vetId) || {}).nome || vetId;
+  const mand = (listinoRiferimento && listinoRiferimento.mandante) || lvScope.mandante;
+  // Per vendita, se non esiste un listino di costo attivo per il vettore, l'import resta
+  // comunque possibile (es. il mandante invia direttamente il proprio listino di vendita):
+  // il costo verrà preso dalla colonna CSV se mappata, altrimenti sarà impostato a 0 e i
+  // controlli di margine non saranno affidabili finché non verrà creato anche il listino di costo.
+  const costoAttivoMancante = tipo === 'vendita' && !listinoCostoAttivo(vetId);
+
   // campi attesi (per il mapping)
+  // Per costo il vettore è fissato dallo scope (non mappabile da CSV).
   const campiAttesi = tipo === 'costo'
     ? [
-        { key: 'vettore', label: 'Vettore', required: true, aliases: ['vettore', 'corriere', 'carrier'] },
         { key: 'scaglione', label: 'Scaglione', required: true, aliases: ['scaglione', 'fascia', 'peso'] },
         { key: 'zona', label: 'Zona', required: true, aliases: ['zona', 'area', 'destinazione'] },
         { key: 'costo', label: 'Costo', required: true, aliases: ['costo', 'prezzo costo', 'cost', 'tariffa'] }
       ]
     : [
-        { key: 'vettoreRif', label: 'Vettore di riferimento', required: false, aliases: ['vettore', 'corriere', 'vettore rif'] },
         { key: 'scaglione', label: 'Scaglione', required: true, aliases: ['scaglione', 'fascia', 'peso'] },
         { key: 'zona', label: 'Zona', required: true, aliases: ['zona', 'area', 'destinazione'] },
-        { key: 'costo', label: 'Costo interno', required: false, aliases: ['costo', 'cost'] },
+        { key: 'costo', label: 'Costo interno (opz.)', required: false, aliases: ['costo', 'cost'] },
         { key: 'vendita', label: 'Prezzo di vendita', required: true, aliases: ['vendita', 'prezzo vendita', 'price', 'tariffa vendita'] }
       ];
 
   const b = el('div');
+  const subHeader = tipo === 'vendita'
+    ? ` del listino di vendita per il mandante <strong>${esc(mand)}</strong> × vettore <strong>${esc(vetName)}</strong>`
+    : ` del listino di costo interno del vettore <strong>${esc(vetName)}</strong>`;
   b.innerHTML = `
-    <p class="small muted">Importazione di un listino da CSV. Le colonne del file vengono <strong>mappate</strong> sui campi del listino${tipo === 'costo' ? ' di costo' : ' di vendita per <strong>' + esc(listinoRiferimento.mandante) + '</strong>'}. L'anteprima mostra le righe parsate; solo dopo la conferma i dati vengono salvati come nuova versione del listino.</p>
+    <p class="small muted">Importazione di un listino da CSV. Se il file è nel formato "a matrice" tipico dei listini vettore (es. export DHL: scaglioni di peso × colonne Zona 1…N), viene riconosciuto <strong>automaticamente</strong>. Altrimenti le colonne vengono <strong>mappate</strong> manualmente sui campi${subHeader}. L'anteprima mostra le righe parsate; solo dopo la conferma i dati vengono salvati come nuova versione del listino.</p>
+    <div class="info-box"><strong>Vettore di destinazione:</strong> <span class="badge">${esc(vetName)}</span>${tipo === 'costo' ? ' <span class="tiny muted">(fissato dallo scope; la colonna "Vettore" del CSV, se presente, verrà ignorata)</span>' : ''}</div>
+    ${costoAttivoMancante ? `<div class="warn-box">⚠️ Non esiste ancora un <strong>listino di costo attivo</strong> per <strong>${esc(vetName)}</strong>. Puoi comunque importare: se il file include già una colonna Costo verrà usata quella riga per riga, altrimenti il costo resterà a 0 e i controlli di margine non saranno affidabili finché non crei anche il listino di costo.</div>` : ''}
     <h4 style="margin-top:8px">1. Carica file CSV</h4>
     <div class="form-row"><label>File</label>
       <input type="file" id="csv-file" accept=".csv,.txt,text/csv">
     </div>
     <p class="tiny" style="margin-top:-4px">Separatori supportati: <span class="mono">, ;</span> · Testo tra virgolette: <span class="mono">"…"</span></p>
     <div id="csv-hint" class="info-box" style="display:none"></div>
-    <h4 style="margin-top:12px">2. Mapping colonne</h4>
-    <div id="csv-mapping"></div>
+    <div id="csv-pivot-box" class="info-box" style="display:none">
+      <div id="csv-pivot-msg"></div>
+    </div>
+    <div id="csv-mapping-section">
+      <h4 style="margin-top:12px">2. Mapping colonne</h4>
+      <div id="csv-mapping"></div>
+    </div>
     <h4 style="margin-top:12px">3. Anteprima righe</h4>
     <div id="csv-warn" class="err-box" style="display:none"></div>
     <div id="csv-preview"></div>
     <h4 style="margin-top:12px">4. Dettagli nuova versione</h4>
-    <div class="form-row"><label>Etichetta</label><input type="text" id="csv-label" value="Import CSV — ${esc(listinoRiferimento.label || listinoRiferimento.id)}"></div>
+    <div class="form-row"><label>Etichetta</label><input type="text" id="csv-label" value="Import CSV — ${esc(vetName)}${tipo === 'vendita' ? ' · ' + esc(mand) : ''}"></div>
     <div class="form-row"><label>Decorrenza inizio</label><input type="date" id="csv-dec-in" value="2027-01-01"></div>
     <div class="form-row"><label>Decorrenza fine</label><input type="date" id="csv-dec-out" value="2027-12-31"></div>
     <div class="form-row"><label>Note</label><input type="text" id="csv-note" value="Importazione CSV"></div>`;
   let parsed = null; // { header, rows }
   let mapping = {}; // campoAtteso -> index
+  let pivotMode = false;
+  let pivotEntries = []; // [ "scaglione|zona", valore ]
+
+  // Converte la matrice peso/zona riconosciuta automaticamente nelle stesse strutture
+  // (parsed.header/rows + mapping) usate dal flusso di mapping manuale.
+  const buildPivotRows = () => {
+    parsed = {
+      header: tipo === 'costo' ? ['Scaglione', 'Zona', 'Costo'] : ['Scaglione', 'Zona', 'Vendita'],
+      rows: pivotEntries.map(([key, val]) => {
+        const [scaglione, zona] = key.split('|');
+        return [scaglione, zona, String(val)];
+      })
+    };
+    mapping = tipo === 'costo'
+      ? { scaglione: 0, zona: 1, costo: 2 }
+      : { scaglione: 0, zona: 1, vendita: 2 };
+    renderPreview();
+  };
 
   const buildMapping = () => {
     const cont = $('#csv-mapping', b);
@@ -2818,7 +3037,6 @@ function openImportCSV(tipo, listinoRiferimento) {
     if (!mapping['vendita'] && tipo === 'vendita') { $('#csv-preview', b).innerHTML = ''; return; }
     if (!mapping['costo'] && tipo === 'costo') { $('#csv-preview', b).innerHTML = ''; return; }
 
-    const ixV = mapping['vettore'] ?? mapping['vettoreRif'];
     const ixS = mapping['scaglione'];
     const ixZ = mapping['zona'];
     const ixC = mapping['costo'];
@@ -2827,14 +3045,12 @@ function openImportCSV(tipo, listinoRiferimento) {
     const parsedRows = parsed.rows.map((r, i) => {
       const obj = {
         _ix: i,
-        vettore: ixV != null ? (r[ixV] || '').trim() : '',
         scaglione: ixS != null ? (r[ixS] || '').trim() : '',
         zona: ixZ != null ? (r[ixZ] || '').trim() : '',
         costo: ixC != null ? parseFloat(String(r[ixC] || '').replace(',', '.')) : null,
         vendita: ixV2 != null ? parseFloat(String(r[ixV2] || '').replace(',', '.')) : null
       };
       obj.errori = [];
-      if (!obj.vettore) obj.errori.push('vettore mancante');
       if (!obj.scaglione) obj.errori.push('scaglione mancante');
       if (!obj.zona) obj.errori.push('zona mancante');
       if (tipo === 'costo' && (obj.costo == null || isNaN(obj.costo))) obj.errori.push('costo non numerico');
@@ -2852,7 +3068,6 @@ function openImportCSV(tipo, listinoRiferimento) {
     const table = el('table', { class: 'dt' });
     table.innerHTML = `<thead><tr>
       <th>#</th>
-      <th>${tipo === 'vendita' ? 'Vettore rif.' : 'Vettore'}</th>
       <th>Scaglione</th><th>Zona</th>
       <th class="num">Costo</th>
       ${tipo === 'vendita' ? '<th class="num">Vendita</th><th class="num">Margine</th>' : ''}
@@ -2863,7 +3078,6 @@ function openImportCSV(tipo, listinoRiferimento) {
       const tr = el('tr', { class: p.errori.length ? 'row-danger' : '' });
       const margine = p.costo && p.vendita ? p.vendita - p.costo : null;
       tr.innerHTML = `<td class="tiny">${p._ix + 1}</td>
-        <td>${esc(p.vettore || '—')}</td>
         <td>${esc(p.scaglione || '—')}</td>
         <td>${esc(p.zona || '—')}</td>
         <td class="num">${p.costo != null && !isNaN(p.costo) ? fmtEur(p.costo) : '<span class="muted">—</span>'}</td>
@@ -2885,19 +3099,37 @@ function openImportCSV(tipo, listinoRiferimento) {
     const reader = new FileReader();
     reader.onload = e => {
       const text = e.target.result;
-      parsed = parseCSVText(text);
-      if (!parsed.length || parsed.length < 2) { toast('CSV vuoto o non valido', 'err'); return; }
-      const header = parsed[0].map(h => h.trim());
-      parsed = { header, rows: parsed.slice(1) };
-      $('#csv-hint', b).style.display = '';
-      $('#csv-hint', b).innerHTML = `✔ <strong>${parsed.rows.length}</strong> righe lette (oltre l'intestazione). <strong>${parsed.header.length}</strong> colonne: <span class="mono">${parsed.header.map(esc).join(' · ')}</span>`;
-      buildMapping();
+      const rawRows = parseCSVText(text);
+      if (!rawRows.length) { toast('CSV vuoto o non valido', 'err'); return; }
+      const pivotMap = estraiTabellePesoZona(rawRows);
+      if (pivotMap.size > 0) {
+        // Formato a matrice riconosciuto (es. export DHL): niente mapping manuale.
+        pivotMode = true;
+        pivotEntries = [...pivotMap.entries()];
+        const nScaglioni = new Set(pivotEntries.map(([k]) => k.split('|')[0])).size;
+        const nZone = new Set(pivotEntries.map(([k]) => k.split('|')[1])).size;
+        $('#csv-hint', b).style.display = 'none';
+        $('#csv-mapping-section', b).style.display = 'none';
+        $('#csv-pivot-box', b).style.display = '';
+        $('#csv-pivot-msg', b).innerHTML = `✔ Rilevato un file in formato <strong>a matrice peso × zona</strong>: <strong>${nScaglioni}</strong> scaglioni × <strong>${nZone}</strong> zone, <strong>${pivotEntries.length}</strong> tariffe lette. Le tariffe saranno importate come listino del vettore <strong>${esc(vetName)}</strong>.`;
+        buildPivotRows();
+      } else {
+        pivotMode = false;
+        $('#csv-pivot-box', b).style.display = 'none';
+        $('#csv-mapping-section', b).style.display = '';
+        if (rawRows.length < 2) { toast('CSV vuoto o non valido', 'err'); return; }
+        const header = rawRows[0].map(h => h.trim());
+        parsed = { header, rows: rawRows.slice(1) };
+        $('#csv-hint', b).style.display = '';
+        $('#csv-hint', b).innerHTML = `✔ <strong>${parsed.rows.length}</strong> righe lette (oltre l'intestazione). <strong>${parsed.header.length}</strong> colonne: <span class="mono">${parsed.header.map(esc).join(' · ')}</span>`;
+        buildMapping();
+      }
     };
     reader.readAsText(f);
   });
 
   openModal({
-    title: `Importa CSV — listino di ${tipo === 'costo' ? 'costo' : 'vendita'}`, body: b, size: 'wide',
+    title: `Importa CSV — listino di ${tipo === 'costo' ? 'costo' : 'vendita'} · ${esc(vetName)}`, body: b, size: 'wide',
     actions: [
       { label: 'Annulla' },
       { label: 'Importa e crea nuova versione', cls: 'btn-primary', keepOpen: true, onClick: (bd, close) => {
@@ -2910,14 +3142,12 @@ function openImportCSV(tipo, listinoRiferimento) {
           const parsedRows = parsed.rows.map((r, i) => {
             const obj = {
               _ix: i,
-              vettore: mapping['vettore'] != null ? (r[mapping['vettore']] || '').trim() : (mapping['vettoreRif'] != null ? (r[mapping['vettoreRif']] || '').trim() : ''),
               scaglione: (r[mapping['scaglione']] || '').trim(),
               zona: (r[mapping['zona']] || '').trim(),
               costo: mapping['costo'] != null ? parseFloat(String(r[mapping['costo']] || '').replace(',', '.')) : null,
               vendita: mapping['vendita'] != null ? parseFloat(String(r[mapping['vendita']] || '').replace(',', '.')) : null
             };
             obj.errori = [];
-            if (!obj.vettore) obj.errori.push('vettore mancante');
             if (!obj.scaglione) obj.errori.push('scaglione mancante');
             if (!obj.zona) obj.errori.push('zona mancante');
             if (tipo === 'costo' && (obj.costo == null || isNaN(obj.costo))) obj.errori.push('costo non numerico');
@@ -2930,27 +3160,27 @@ function openImportCSV(tipo, listinoRiferimento) {
           // arricchisci con riferimento al listino di costo per vendita
           let righeFinali;
           if (tipo === 'vendita') {
-            const costoAttivo = listinoCostoAttivo();
+            const mappaCosto = mappaCostoAttivo(vetId);
             righeFinali = okRows.map(r => {
-              const rifCosto = costoAttivo?.righe.find(x => x.vettore === r.vettore && x.scaglione === r.scaglione && x.zona === r.zona);
+              const rifCosto = mappaCosto.get(r.scaglione + '|' + r.zona);
               const costo = r.costo != null ? r.costo : (rifCosto ? rifCosto.costo : null);
               const costoVettore = rifCosto ? rifCosto.costoVettore : null;
               return {
-                vettoreRif: r.vettore, scaglione: r.scaglione, zona: r.zona,
+                scaglione: r.scaglione, zona: r.zona,
                 costo: costo || 0, costoVettore, vendita: r.vendita,
                 margine: costo ? +(r.vendita - costo).toFixed(2) : 0,
                 personalizzazione: { tipo: 'abs', valore: r.vendita, applicataIl: nowStr().slice(0, 10) }
               };
             });
           } else {
+            const lv = LISTINI_VETTORE[vetName];
             righeFinali = okRows.map(r => {
               // per il costo: prova a derivare costoVettore dal listino vettore di riferimento
-              const lv = LISTINI_VETTORE[r.vettore];
               const vrow = lv?.rows.find(x => x.scaglione === r.scaglione && x.zona === r.zona);
               return {
-                vettore: r.vettore, scaglione: r.scaglione, zona: r.zona,
+                scaglione: r.scaglione, zona: r.zona,
                 costo: r.costo, costoVettore: vrow ? vrow.prezzo : null,
-                origine: vrow ? `Importato da CSV — listino vettore ${r.vettore}` : 'Importato da CSV',
+                origine: vrow ? `Importato da CSV — listino vettore ${vetName}` : 'Importato da CSV',
                 origineTipo: 'csv',
                 valoreOriginale: r.costo,
                 personalizzazione: { tipo: 'abs', valore: r.costo, applicataIl: nowStr().slice(0, 10) }
@@ -2965,26 +3195,27 @@ function openImportCSV(tipo, listinoRiferimento) {
             const decorrenzaFine = $('#csv-dec-out', bd).value || '';
             const label = $('#csv-label', bd).value.trim() || `Import CSV ${nowStr().slice(0, 10)}`;
             const note = $('#csv-note', bd).value.trim() || 'Importazione CSV';
-            let stato = OGGI < decorrenzaInizio ? 'futuro' : (decorrenzaFine && OGGI > decorrenzaFine ? 'archiviato' : 'attivo');
+            // Un listino importato da CSV nasce sempre come "futuro" (richiede conferma/attivazione
+            // manuale prima di entrare in vigore), a meno che la sua decorrenza fine non sia già
+            // trascorsa: in quel caso nasce direttamente "archiviato".
+            let stato = (decorrenzaFine && OGGI > decorrenzaFine) ? 'archiviato' : 'futuro';
 
-            // genera id
+            // genera id per scope
             let id;
             if (tipo === 'vendita') {
-              const same = LISTINI_VENDITA_VERSIONI.filter(x => x.mandante === listinoRiferimento.mandante);
-              const nn = same.length + 1;
-              const mTag = (listinoRiferimento.mandante.split(' ')[0] || 'CLI').replace(/[^A-Za-z]/g, '').toUpperCase();
-              id = `LV-${mTag}-${String(nn).padStart(3, '0')}-CSV`;
+              id = nextListinoVenditaId2(mand, vetId, true);
             } else {
               const anno = decorrenzaInizio.slice(0, 4);
-              const same = LISTINI_COSTO_VERSIONI.filter(x => x.id.startsWith('LC-' + anno + '-'));
-              const nn = same.length + 1;
-              id = `LC-${anno}-${String(nn).padStart(2, '0')}-CSV`;
+              id = nextListinoCostoId(vetId, anno, true);
             }
 
-            // auto-arciviazione
+            // auto-arciviazione: solo stesso scope
             if (stato === 'attivo' || stato === 'futuro') {
-              const coll = tipo === 'vendita' ? LISTINI_VENDITA_VERSIONI : LISTINI_COSTO_VERSIONI;
-              coll.filter(x => x.stato === stato && (tipo === 'vendita' ? x.mandante === listinoRiferimento.mandante : true) && x.id !== id)
+              const versioniStessoScope = tipo === 'vendita'
+                ? ensureListinoVendita(mand, vetId).versioni
+                : ensureListinoCosto(vetId).versioni;
+              versioniStessoScope
+                .filter(x => x.stato === stato && x.id !== id)
                 .forEach(prev => {
                   if (decorrenzaInizio <= (prev.decorrenzaInizio || '')) {
                     prev.stato = 'archiviato';
@@ -2999,17 +3230,22 @@ function openImportCSV(tipo, listinoRiferimento) {
               creatoIl: nowStr(), creatoDa: currentUser?.nome || 'Sistema'
             };
             if (tipo === 'vendita') {
-              nuovo.mandante = listinoRiferimento.mandante;
-              nuovo.agente = listinoRiferimento.agente;
-              nuovo.provvigionePct = listinoRiferimento.provvigionePct;
-              nuovo.scontoPct = listinoRiferimento.scontoPct;
-              LISTINI_VENDITA_VERSIONI.push(nuovo);
+              nuovo.mandante = mand;
+              nuovo.vettore = vetId;
+              nuovo.agente = (listinoRiferimento && listinoRiferimento.agente) || '';
+              nuovo.provvigionePct = (listinoRiferimento && listinoRiferimento.provvigionePct) || 0;
+              nuovo.scontoPct = (listinoRiferimento && listinoRiferimento.scontoPct) || 0;
+              ensureListinoVendita(mand, vetId).versioni.push(nuovo);
             } else {
-              LISTINI_COSTO_VERSIONI.push(nuovo);
+              nuovo.vettore = vetId;
+              ensureListinoCosto(vetId).versioni.push(nuovo);
             }
             ricalcolaStatoListini();
             renderListinoCostoAttivo(); renderListinoCostoStorico();
             renderListinoVenditaAttivo(); renderListinoVenditaStorico();
+            const isMand = currentUser?.livello === 'Mandante/Sottocontratto';
+            renderMandanteVettoreTabs('#lv-mandante-tabs', 'mandante', isMand);
+            renderMandanteVettoreTabs('#lv-stor-mandante-tabs', 'storMandante', isMand);
             toast(`Importate ${okRows.length} righe in ${id} (${stato})${parsedRows.length - okRows.length ? `, ${parsedRows.length - okRows.length} saltate` : ''}`, sottoCosto.length ? 'warn' : 'ok');
             close();
           };
@@ -3018,7 +3254,7 @@ function openImportCSV(tipo, listinoRiferimento) {
             openModal({
               title: 'Conferma righe in perdita',
               body: `<p>Il file CSV contiene <strong>${sottoCosto.length} righe con vendita &lt; costo</strong>. Per procedere è richiesta una conferma esplicita.</p>
-                <ul style="margin:6px 0 0 18px">${sottoCosto.slice(0, 5).map(r => `<li class="mono">${esc(r.vettoreRif)} · ${esc(r.scaglione)}</li>`).join('')}</ul>
+                <ul style="margin:6px 0 0 18px">${sottoCosto.slice(0, 5).map(r => `<li class="mono">${esc(r.scaglione)}</li>`).join('')}</ul>
                 ${sottoCosto.length > 5 ? `<li class="tiny">… e altre ${sottoCosto.length - 5}</li>` : ''}`,
               actions: [
                 { label: 'Annulla' },
@@ -3046,12 +3282,14 @@ function esportaListinoCSV(v, tipo) {
     const s = String(val);
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
+  const vetName = v.vettore ? ((VETTORI.find(x => x.id === v.vettore) || {}).nome || v.vettore) : '';
   const lines = [header.join(csvSep)];
   v.righe.forEach(r => {
     if (tipo === 'costo') {
-      lines.push([r.vettore, r.scaglione, r.zona, r.costo, r.costoVettore || '', r.personalizzazione?.tipo || '', r.personalizzazione?.valore || ''].map(escape).join(csvSep));
+      // Il vettore è nello scope: lo valorizziamo per completezza del CSV
+      lines.push([vetName, r.scaglione, r.zona, r.costo, r.costoVettore || '', r.personalizzazione?.tipo || '', r.personalizzazione?.valore || ''].map(escape).join(csvSep));
     } else {
-      lines.push([v.mandante, r.vettoreRif, r.scaglione, r.zona, r.costo, r.vendita, r.margine, v.agente || '', v.provvigionePct || 0, v.scontoPct || 0].map(escape).join(csvSep));
+      lines.push([v.mandante, vetName, r.scaglione, r.zona, r.costo, r.vendita, r.margine, v.agente || '', v.provvigionePct || 0, v.scontoPct || 0].map(escape).join(csvSep));
     }
   });
   const csv = lines.join('\n');
@@ -3394,7 +3632,7 @@ function initAppop() {
 }
 function renderPhone() {
   const isProprio = appopState.mode === 'padroncino';
-  $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — Corriere B';
+  $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — DHL';
   const pkgs = SPEDIZIONI.filter(s => ['Pronta per etichettatura', 'In transito'].includes(s.stato)).slice(0, 4);
   const body = $('#phone-body');
   body.innerHTML = '';
@@ -3438,8 +3676,8 @@ function renderPhone() {
         appopState.consegnati.add(p.id);
         const s = spedById(p.id);
         s.stato = 'Consegnata';
-        s.storico.push({ stato: 'Consegnata', data: nowStr(), operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
-        s.tracking.push({ data: nowStr(), evento: 'Consegnata al destinatario (con foto)', luogo: s.localita, interno: false, operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
+        s.storico.push({ stato: 'Consegnata', data: nowStr(), operatore: isProprio ? 'Padroncino Riviera' : 'DHL' });
+        s.tracking.push({ data: nowStr(), evento: 'Consegnata al destinatario (con foto)', luogo: s.localita, interno: false, operatore: isProprio ? 'Padroncino Riviera' : 'DHL' });
         toast(`${p.id} consegnata ✓`, 'ok'); renderPhone();
       } }, 'Conferma consegna');
       box.appendChild(btn);
@@ -3557,18 +3795,21 @@ function initDashboard() {
   const capErr = SPEDIZIONI.filter(s => !s.capValido).length;
   const giacAperte = GIACENZE.filter(g => g.esito === 'Aperta').length;
   // Righe di vendita in perdita: solo listini attivi (futuro/attivo), in tutte le versioni correnti
-  const perdita = LISTINI_VENDITA_VERSIONI
+  // di tutte le coppie (mandante × vettore).
+  const perdita = tutteVersioniVendita()
     .filter(l => l.stato !== 'archiviato')
     .reduce((acc, l) => acc + l.righe.filter(r => r.vendita < r.costo).length, 0);
   const flussiErr = FLUSSI.filter(f => f.stato === 'Errore').length;
-  const listiniCostoAttivi = LISTINI_COSTO_VERSIONI.filter(l => l.stato === 'attivo').length;
-  const listiniVenditaAttivi = LISTINI_VENDITA_VERSIONI.filter(l => l.stato === 'attivo').length;
+  const nVersCosto = tutteVersioniCosto();
+  const nVersVendita = tutteVersioniVendita();
+  const listiniCostoAttivi = nVersCosto.filter(l => l.stato === 'attivo').length;
+  const listiniVenditaAttivi = nVersVendita.filter(l => l.stato === 'attivo').length;
   $('#dash-kpis').innerHTML = `
     <div class="kpi" onclick="showView('spedizioni')"><div class="kpi-label">Spedizioni in lavorazione</div><div class="kpi-value">${SPEDIZIONI.filter(s => !['Consegnata'].includes(s.stato)).length}</div><div class="kpi-note">su ${SPEDIZIONI.length} totali in vista</div></div>
     <div class="kpi warn" onclick="showView('spedizioni')"><div class="kpi-label">CAP da correggere</div><div class="kpi-value">${capErr}</div><div class="kpi-note">azione massiva disponibile</div></div>
     <div class="kpi err" onclick="showView('giacenze')"><div class="kpi-label">Giacenze aperte</div><div class="kpi-value">${giacAperte}</div><div class="kpi-note">${GIACENZE.filter(g => g.esito === 'Aperta' && g.giorni >= 5).length} oltre 5 giorni</div></div>
     <div class="kpi err" onclick="showView('listini')"><div class="kpi-label">Righe vendita in perdita</div><div class="kpi-value">${perdita}</div><div class="kpi-note">controllo listini</div></div>
-    <div class="kpi" onclick="showView('listini')"><div class="kpi-label">Listini costo / vendita attivi</div><div class="kpi-value">${listiniCostoAttivi} / ${listiniVenditaAttivi}</div><div class="kpi-note">su ${LISTINI_COSTO_VERSIONI.length} + ${LISTINI_VENDITA_VERSIONI.length} totali (incl. futuri e archiviati)</div></div>
+    <div class="kpi" onclick="showView('listini')"><div class="kpi-label">Listini costo / vendita attivi</div><div class="kpi-value">${listiniCostoAttivi} / ${listiniVenditaAttivi}</div><div class="kpi-note">su ${nVersCosto.length} + ${nVersVendita.length} totali (per vettore / per coppia mandante×vettore)</div></div>
     <div class="kpi ${flussiErr ? 'warn' : 'ok'}" onclick="showView('flussi')"><div class="kpi-label">Flussi in errore</div><div class="kpi-value">${flussiErr}</div><div class="kpi-note">su ${FLUSSI_TOTALI} configurati</div></div>`;
 
   // distribuzione per stato
@@ -3586,7 +3827,7 @@ function initDashboard() {
 
   $('#dash-activity').innerHTML = [
     ['19:42', 'Import completato — Logistica Beta (CSV, 214 righe)', 'Flussi in ingresso'],
-    ['19:15', 'Azione massiva: 23 spedizioni → Corriere B', 'Spedizioni · M. Bruzzone'],
+    ['19:15', 'Azione massiva: 23 spedizioni → DHL', 'Spedizioni · M. Bruzzone'],
     ['18:50', 'Nuovo listino 2027 caricato per Pharma Ligure', 'Listini · A. Vitali'],
     ['18:22', 'Push Vinted: 3 nuovi ordini ricevuti', 'Connettore e-commerce'],
     ['17:58', 'Giacenza SPD-2026-00131 → reso al mittente', 'Giacenze · S. Piaggio']

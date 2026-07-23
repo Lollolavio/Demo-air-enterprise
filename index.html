@@ -211,14 +211,16 @@
   <section class="view" id="view-listini">
     <div class="view-header">
       <h1>Listini e tariffe</h1>
-      <span class="sub">4 sezioni: listino di costo, storico listino di costo, listino di vendita, storico listino di vendita</span>
+      <span class="sub">Listini suddivisi per vettore. Ogni vettore ha il suo listino di costo; per ogni mandante, un listino di vendita per ciascun vettore.</span>
     </div>
+    <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
     <div class="tabs" id="listini-tabs">
       <button class="tab-btn active" data-tab="lc">Listino di costo</button>
       <button class="tab-btn" data-tab="lc-stor">Storico listino di costo</button>
       <button class="tab-btn" data-tab="lv">Listino di vendita</button>
       <button class="tab-btn" data-tab="lv-stor">Storico listino di vendita</button>
     </div>
+
 
     <!-- =============== 1. LISTINO DI COSTO (attivo) =============== -->
     <div class="tab-pane active" id="pane-lc">
@@ -228,11 +230,6 @@
         <span class="tiny">Per modificare un listino attivo: <strong>duplicalo</strong>. I listini di costo e vendita sono storici e si modificano solo creando una nuova versione.</span>
       </div>
       <div id="dt-listino-costo"></div>
-      <div style="margin-top:18px">
-        <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
-        <div class="price-meta" id="lc-vettori-meta"></div>
-        <div id="dt-listino-vettore"></div>
-      </div>
     </div>
 
     <!-- =============== 2. STORICO LISTINO DI COSTO =============== -->
@@ -244,10 +241,7 @@
     <!-- =============== 3. LISTINO DI VENDITA (attivo) =============== -->
     <div class="tab-pane" id="pane-lv">
       <div id="lv-header"></div>
-      <div class="form-row" style="max-width:420px;margin-bottom:8px">
-        <label>Mandante</label>
-        <select id="lv-mandante-sel" class="inline-select" style="max-width:none;width:100%"></select>
-      </div>
+      <div class="tabs" id="lv-mandante-tabs" style="border-bottom-width:1px;margin-bottom:8px"></div>
       <div class="legend">
         <span><span class="sw" style="background:var(--err-bg);border:1px solid var(--err)"></span>Riga in perdita (vendita &lt; costo)</span>
         <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>Sotto il listino del vettore terzo (warning severo)</span>
@@ -259,10 +253,7 @@
     <!-- =============== 4. STORICO LISTINO DI VENDITA =============== -->
     <div class="tab-pane" id="pane-lv-stor">
       <div id="lv-stor-header"></div>
-      <div class="form-row" style="max-width:420px;margin-bottom:8px">
-        <label>Mandante</label>
-        <select id="lv-stor-mandante-sel" class="inline-select" style="max-width:none;width:100%"></select>
-      </div>
+      <div class="tabs" id="lv-stor-mandante-tabs" style="border-bottom-width:1px;margin-bottom:8px"></div>
       <div id="dt-listino-vendita-stor"></div>
     </div>
   </section>
