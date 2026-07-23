@@ -2011,7 +2011,12 @@ let lvMandanteCorrente = MANDANTI[0];
 let lvStorMandanteCorrente = MANDANTI[0];
 
 function righePerVettore(righe, campo) {
+  if (lvVettoreCorrente === null) return righe;
   return righe.filter(r => r[campo] === lvVettoreCorrente);
+}
+
+function vettoreLabel() {
+  return lvVettoreCorrente === null ? 'Tutti i vettori' : lvVettoreCorrente;
 }
 
 function initListini() {
@@ -2049,6 +2054,16 @@ function initListini() {
   // 4. selettore vettore condiviso dalle quattro sezioni
   const vt = $('#lc-vettori-tabs');
   vt.innerHTML = '';
+  const bTutti = el('button', { class: 'tab-btn' + (lvVettoreCorrente === null ? ' active' : ''), onclick: () => {
+      $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
+      bTutti.classList.add('active');
+      lvVettoreCorrente = null;
+      renderListinoCostoAttivo();
+      renderListinoCostoStorico();
+      renderListinoVenditaAttivo();
+      renderListinoVenditaStorico();
+    } }, 'Tutti');
+  vt.appendChild(bTutti);
   Object.keys(LISTINI_VETTORE).forEach((nome, i) => {
     const b = el('button', { class: 'tab-btn' + (nome === lvVettoreCorrente ? ' active' : ''), onclick: () => {
       $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
@@ -2154,7 +2169,7 @@ function renderListinoCostoAttivo() {
   });
 
   renderDataTable({
-    mount: '#dt-listino-costo', title: `Righe listino di costo — ${lvVettoreCorrente} — ${l.label}`, noun: 'righe di listino',
+    mount: '#dt-listino-costo', title: `Righe listino di costo — ${vettoreLabel()} — ${l.label}`, noun: 'righe di listino',
     data: () => righePerVettore(l.righe, 'vettore'), rowKey: r => r.vettore + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
     onRowClick: r => {
       openModal({ title: 'Origine listino di costo', body: `
@@ -2204,7 +2219,7 @@ function renderListinoCostoStorico() {
 
   // costruiamo una vista "una riga per versione" + sotto-tabella righe quando si apre il dettaglio
   const versioni = [...LISTINI_COSTO_VERSIONI].sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
-  const dataRows = versioni.filter(v => v.righe.some(r => r.vettore === lvVettoreCorrente)).map(v => ({
+  const dataRows = versioni.filter(v => lvVettoreCorrente === null || v.righe.some(r => r.vettore === lvVettoreCorrente)).map(v => ({
     versione: v,
     id: v.id, label: v.label, decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
     stato: v.stato, nRighe: righePerVettore(v.righe, 'vettore').length, note: v.note,
@@ -2212,7 +2227,7 @@ function renderListinoCostoStorico() {
   }));
 
   renderDataTable({
-    mount: '#dt-listino-costo-stor', title: `Versioni del listino di costo — ${lvVettoreCorrente}`, noun: 'versioni di listino',
+    mount: '#dt-listino-costo-stor', title: `Versioni del listino di costo — ${vettoreLabel()}`, noun: 'versioni di listino',
     data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
     onRowClick: r => openDettaglioVersioneCosto(r.versione),
     rowActions: (r) => {
@@ -2328,7 +2343,7 @@ function renderListinoVenditaAttivo() {
   }
 
   renderDataTable({
-    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${lvVettoreCorrente} — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
+    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${vettoreLabel()} — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
     data: () => righePerVettore(l.righe, 'vettoreRif'), rowKey: r => r.vettoreRif + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
     rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
     columns: [
@@ -2361,7 +2376,7 @@ function renderListinoVenditaStorico() {
     <div class="lh-meta tiny">Tutte le versioni di listino del mandante selezionato, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`));
 
   const versioni = LISTINI_VENDITA_VERSIONI
-    .filter(v => v.mandante === lvStorMandanteCorrente && v.righe.some(r => r.vettoreRif === lvVettoreCorrente))
+    .filter(v => v.mandante === lvStorMandanteCorrente && (lvVettoreCorrente === null || v.righe.some(r => r.vettoreRif === lvVettoreCorrente)))
     .sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
   const dataRows = versioni.map(v => ({
     versione: v,
@@ -2373,7 +2388,7 @@ function renderListinoVenditaStorico() {
   }));
 
   renderDataTable({
-    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita — ${lvVettoreCorrente} — ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
+    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita — ${vettoreLabel()} — ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
     data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
     onRowClick: r => openDettaglioVersioneVendita(r.versione),
     rowActions: (r) => {
