@@ -361,8 +361,13 @@ const FLUSSI_TOTALI = 34;
  *      periodo, 'futuro' se decorrenzaInizio > oggi, 'archiviato' se
  *      decorrenzaFine < oggi. Una decorrenza vuota = sempre attivo.
  * ---------------------------------------------------------- */
-const SCAGLIONI = ['0–2 kg', '2–5 kg', '5–10 kg', '10–20 kg', '20–30 kg', '30–50 kg'];
-const ZONE = ['Nazionale', 'UE', 'Extra-UE'];
+// Scaglioni e zone allineati al formato dei listini vettore reali (es. DHL Express
+// Worldwide Export) che vengono importati da CSV: scaglioni di peso ogni 0.5 kg da
+// 0.5 a 70.0 kg, e 9 zone di destinazione ("Zona 1" … "Zona 9").
+const SCAGLIONI = Array.from({ length: 140 }, (_, i) => (0.5 * (i + 1)).toFixed(1) + ' kg');
+const ZONE = Array.from({ length: 9 }, (_, i) => `Zona ${i + 1}`);
+// Ricava il peso numerico (kg) da uno scaglione tipo "12.5 kg"
+const pesoScaglione = sc => parseFloat(String(sc).replace(',', '.'));
 const OGGI = '2026-07-22'; // demo: data fissa, congelata per i test di auto-arciviazione
 
 // 4a. Listini dei vettori terzi (base costo esterna, non negoziabile)
@@ -370,16 +375,20 @@ const OGGI = '2026-07-22'; // demo: data fissa, congelata per i test di auto-arc
 const LISTINI_VETTORE = {};
 VETTORI.filter(v => v.tipo === 'terzo').forEach((v, vi) => {
   const rows = [];
-  SCAGLIONI.forEach((sc, si) => ZONE.forEach((z, zi) => {
-    rows.push({
-      vettore: v.nome, scaglione: sc, zona: z,
-      prezzo: +(3.2 + si * 1.9 + zi * 4.5 + vi * 0.45 + rnd() * 0.8).toFixed(2),
-      fuel: +(4 + vi * 1.5 + rnd() * 2).toFixed(1),
-      validita: vi === 1 ? '01/07/2026 – 31/12/2026' : '01/03/2026 – 31/12/2026'
+  SCAGLIONI.forEach(sc => {
+    const peso = pesoScaglione(sc);
+    ZONE.forEach((z, zi) => {
+      rows.push({
+        vettore: v.nome, scaglione: sc, zona: z,
+        prezzo: +(3.2 + peso * 0.42 + zi * 1.35 + vi * 0.45 + rnd() * 0.8).toFixed(2),
+        fuel: +(4 + vi * 1.5 + rnd() * 2).toFixed(1),
+        validita: vi === 1 ? '01/07/2026 – 31/12/2026' : '01/03/2026 – 31/12/2026'
+      });
     });
-  }));
+  });
   LISTINI_VETTORE[v.nome] = {
     rows,
+    rowsByKey: new Map(rows.map(r => [`${r.scaglione}|${r.zona}`, r])),
     aggiornato: ['03/03/2026', '28/06/2026', '15/05/2026'][vi],
     versione: ['03/2026', '07/2026', '05/2026'][vi],
     nota: `Listino ${v.nome} aggiornato dal fornitore il ${['03/03/2026', '28/06/2026', '15/05/2026'][vi]} — dati di esempio`
@@ -405,18 +414,21 @@ const LISTINI_COSTO_VERSIONI = [];
 {
   const righe = [];
   VETTORI.forEach(v => {
-    SCAGLIONI.forEach((sc, si) => {
-      const base = v.tipo === 'terzo'
-        ? LISTINI_VETTORE[v.nome].rows.find(r => r.scaglione === sc && r.zona === 'Nazionale').prezzo
-        : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2);
-      righe.push({
-        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
-        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
-        costoVettore: v.tipo === 'terzo' ? base : null,
-        origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino',
-        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
-        valoreOriginale: v.tipo === 'terzo' ? base : +(2.4 + si * 1.55 + rnd() * 0.6).toFixed(2),
-        personalizzazione: null // { tipo: 'perc'|'abs', valore: n, applicataIl: iso }
+    SCAGLIONI.forEach(sc => {
+      const peso = pesoScaglione(sc);
+      ZONE.forEach((z, zi) => {
+        const base = v.tipo === 'terzo'
+          ? LISTINI_VETTORE[v.nome].rowsByKey.get(`${sc}|${z}`).prezzo
+          : +(2.4 + peso * 0.34 + zi * 0.5 + rnd() * 0.6).toFixed(2);
+        righe.push({
+          vettore: v.nome, scaglione: sc, zona: z,
+          costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
+          costoVettore: v.tipo === 'terzo' ? base : null,
+          origine: v.tipo === 'terzo' ? `Importato da: Listino ${v.nome} — versione ${LISTINI_VETTORE[v.nome].versione}` : 'Calcolo interno km/tempo padroncino',
+          origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
+          valoreOriginale: base,
+          personalizzazione: null // { tipo: 'perc'|'abs', valore: n, applicataIl: iso }
+        });
       });
     });
   });
@@ -437,18 +449,21 @@ const LISTINI_COSTO_VERSIONI = [];
 {
   const righe = [];
   VETTORI.forEach((v, vi) => {
-    SCAGLIONI.forEach((sc, si) => {
-      const base = v.tipo === 'terzo'
-        ? +(3.0 + si * 1.6 + vi * 0.4 + rnd() * 0.6).toFixed(2)
-        : +(2.2 + si * 1.4 + rnd() * 0.5).toFixed(2);
-      righe.push({
-        vettore: v.nome, scaglione: sc, zona: 'Nazionale',
-        costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
-        costoVettore: v.tipo === 'terzo' ? base : null,
-        origine: 'Listino storico 2025',
-        origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
-        valoreOriginale: base,
-        personalizzazione: null
+    SCAGLIONI.forEach(sc => {
+      const peso = pesoScaglione(sc);
+      ZONE.forEach((z, zi) => {
+        const base = v.tipo === 'terzo'
+          ? +(3.0 + peso * 0.4 + zi * 0.45 + vi * 0.4 + rnd() * 0.6).toFixed(2)
+          : +(2.2 + peso * 0.32 + zi * 0.4 + rnd() * 0.5).toFixed(2);
+        righe.push({
+          vettore: v.nome, scaglione: sc, zona: z,
+          costo: v.tipo === 'terzo' ? +(base * 1.03).toFixed(2) : base,
+          costoVettore: v.tipo === 'terzo' ? base : null,
+          origine: 'Listino storico 2025',
+          origineTipo: v.tipo === 'terzo' ? 'vettore' : 'interna',
+          valoreOriginale: base,
+          personalizzazione: null
+        });
       });
     });
   });
@@ -497,6 +512,10 @@ const nextListinoVenditaId = (mandante) => {
   const nn = same.length + 1;
   return `LV-${mandante.split(' ')[0].replace(/[^A-Za-z]/g, '').toUpperCase() || 'CLI'}-${String(nn).padStart(3, '0')}`;
 };
+// mappa vettore|scaglione|zona -> riga costo, per lookup O(1) (140 scaglioni × 9 zone = 1260 combinazioni per vettore)
+const mappaCostoVersione = righeCosto => new Map(righeCosto.map(r => [`${r.vettore}|${r.scaglione}|${r.zona}`, r]));
+const mappaCosto2025 = mappaCostoVersione(LISTINI_COSTO_VERSIONI[1].righe);
+const mappaCosto2026 = mappaCostoVersione(LISTINI_COSTO_VERSIONI[0].righe);
 
 MANDANTI.forEach((m, mi) => {
   const vetRef = VETTORI[mi % VETTORI.length].nome;
@@ -507,16 +526,16 @@ MANDANTI.forEach((m, mi) => {
   // 2025 archiviato
   {
     const righe = [];
-    SCAGLIONI.forEach((sc, si) => {
-      const costoRef = LISTINI_COSTO_VERSIONI[1].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
+    SCAGLIONI.forEach(sc => ZONE.forEach(z => {
+      const costoRef = mappaCosto2025.get(`${vetRef}|${sc}|${z}`);
       const vendita = +(costoRef.costo * (1.15 + rnd() * 0.2)).toFixed(2);
       righe.push({
-        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
+        vettoreRif: vetRef, scaglione: sc, zona: z,
         costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
         margine: +(vendita - costoRef.costo).toFixed(2),
         personalizzazione: null
       });
-    });
+    }));
     LISTINI_VENDITA_VERSIONI.push({
       id: nextListinoVenditaId(m),
       mandante: m, label: `Listino ${m} — 2025 (archiviato)`,
@@ -530,20 +549,20 @@ MANDANTI.forEach((m, mi) => {
   // 2026 attivo (con alcune righe in perdita intenzionali)
   {
     const righe = [];
-    SCAGLIONI.forEach((sc, si) => {
-      const costoRef = LISTINI_COSTO_VERSIONI[0].righe.find(r => r.vettore === vetRef && r.scaglione === sc);
+    SCAGLIONI.forEach((sc, si) => ZONE.forEach((z, zi) => {
+      const costoRef = mappaCosto2026.get(`${vetRef}|${sc}|${z}`);
       let vendita = +(costoRef.costo * (1.18 + rnd() * 0.22)).toFixed(2);
       // righe in perdita: alcune sotto il costo interno, almeno una sotto il listino vettore
-      if (mi === 1 && si === 3) vendita = +(costoRef.costo * 0.93).toFixed(2);
-      if (mi === 2 && si === 4 && costoRef.costoVettore) vendita = +(costoRef.costoVettore * 0.9).toFixed(2);
-      if (mi === 4 && si === 5) vendita = +(costoRef.costo * 0.96).toFixed(2);
+      if (mi === 1 && si === 3 && zi === 0) vendita = +(costoRef.costo * 0.93).toFixed(2);
+      if (mi === 2 && si === 4 && zi === 0 && costoRef.costoVettore) vendita = +(costoRef.costoVettore * 0.9).toFixed(2);
+      if (mi === 4 && si === 5 && zi === 0) vendita = +(costoRef.costo * 0.96).toFixed(2);
       righe.push({
-        vettoreRif: vetRef, scaglione: sc, zona: 'Nazionale',
+        vettoreRif: vetRef, scaglione: sc, zona: z,
         costo: costoRef.costo, costoVettore: costoRef.costoVettore, vendita,
         margine: +(vendita - costoRef.costo).toFixed(2),
         personalizzazione: null
       });
-    });
+    }));
     LISTINI_VENDITA_VERSIONI.push({
       id: nextListinoVenditaId(m),
       mandante: m, label: `Listino ${m} — 2026 in vigore`,
@@ -2043,30 +2062,38 @@ function initListini() {
     vt.appendChild(b);
   });
 
-  // 5. select mandante (listino di vendita attivo)
-  const selM = $('#lv-mandante-sel');
-  if (selM) {
-    if (isMandante) {
-      selM.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
-      selM.disabled = true;
-    } else {
-      selM.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
-      selM.value = lvMandanteCorrente;
-      selM.addEventListener('change', () => { lvMandanteCorrente = selM.value; renderListinoVenditaAttivo(); });
-    }
+  // 5. tab mandante (listino di vendita attivo)
+  const mt = $('#lv-mandante-tabs');
+  if (mt) {
+    mt.innerHTML = '';
+    const mandantiVisibili = isMandante ? [currentUser.mandante] : MANDANTI;
+    mandantiVisibili.forEach(m => {
+      const btn = el('button', { class: 'tab-btn' + (m === lvMandanteCorrente ? ' active' : ''), onclick: () => {
+        if (isMandante) return;
+        $$('.tab-btn', mt).forEach(x => x.classList.remove('active'));
+        btn.classList.add('active');
+        lvMandanteCorrente = m;
+        renderListinoVenditaAttivo();
+      } }, esc(m));
+      mt.appendChild(btn);
+    });
   }
 
-  // 6. select mandante (storico vendita)
-  const selS = $('#lv-stor-mandante-sel');
-  if (selS) {
-    if (isMandante) {
-      selS.innerHTML = `<option>${esc(currentUser.mandante)}</option>`;
-      selS.disabled = true;
-    } else {
-      selS.innerHTML = MANDANTI.map(m => `<option>${esc(m)}</option>`).join('');
-      selS.value = lvStorMandanteCorrente;
-      selS.addEventListener('change', () => { lvStorMandanteCorrente = selS.value; renderListinoVenditaStorico(); });
-    }
+  // 6. tab mandante (storico vendita)
+  const mts = $('#lv-stor-mandante-tabs');
+  if (mts) {
+    mts.innerHTML = '';
+    const mandantiVisibili = isMandante ? [currentUser.mandante] : MANDANTI;
+    mandantiVisibili.forEach(m => {
+      const btn = el('button', { class: 'tab-btn' + (m === lvStorMandanteCorrente ? ' active' : ''), onclick: () => {
+        if (isMandante) return;
+        $$('.tab-btn', mts).forEach(x => x.classList.remove('active'));
+        btn.classList.add('active');
+        lvStorMandanteCorrente = m;
+        renderListinoVenditaStorico();
+      } }, esc(m));
+      mts.appendChild(btn);
+    });
   }
 
   // 7. render iniziale di tutte le 4 sezioni
@@ -2745,6 +2772,42 @@ function parseCSVText(text) {
   return rows;
 }
 
+/* Rileva ed estrae le tabelle "tariffe peso × zona" da un export vettore tipo DHL
+ * (righe intestate "KG,,Zona 1,Zona 2,…"). Le altre sezioni del file (supplemento oltre
+ * soglia, premium orari, note legali, blocchi firma) vengono ignorate automaticamente:
+ * non hanno un'intestazione che inizia con "KG" seguita da colonne "Zona N" e quindi
+ * non vengono mai riconosciute come tabella dati.
+ * Se nel file compaiono più tabelle sovrapposte (es. "Documenti fino a 2kg" e poi
+ * "Non documenti / Documenti oltre 2.5kg"), l'ultima tabella letta vince sulle
+ * combinazioni scaglione+zona in comune. Ritorna una Map "scaglione|zona" -> costo.
+ */
+function estraiTabellePesoZona(rawRows) {
+  const risultato = new Map();
+  let zonaCols = null; // [{ ix, label }] quando siamo dentro una tabella riconosciuta
+  rawRows.forEach(row => {
+    const primaCella = (row[0] || '').trim();
+    const colonneZona = row
+      .map((cell, ix) => ({ cell: (cell || '').trim(), ix }))
+      .filter(c => /^zona\s*\d+$/i.test(c.cell));
+    // intestazione di una tabella peso/zona: prima colonna "KG" + almeno 2 colonne "Zona N"
+    if (primaCella.toLowerCase() === 'kg' && colonneZona.length >= 2) {
+      zonaCols = colonneZona.map(c => ({ ix: c.ix, label: c.cell.replace(/\s+/g, ' ') }));
+      return;
+    }
+    if (!zonaCols) return; // fuori da una tabella riconosciuta: riga ignorata (supplementi, premium, note legali, firme…)
+    const peso = parseFloat(primaCella.replace(',', '.'));
+    if (!primaCella || isNaN(peso)) { zonaCols = null; return; } // riga vuota/non numerica = fine tabella
+    const scaglione = peso.toFixed(1) + ' kg';
+    zonaCols.forEach(zc => {
+      const raw = (row[zc.ix] || '').trim();
+      if (!raw) return; // tariffa non disponibile per questo peso/zona
+      const val = parseFloat(raw.replace(',', '.'));
+      if (!isNaN(val)) risultato.set(`${scaglione}|${zc.label}`, val);
+    });
+  });
+  return risultato;
+}
+
 function openImportCSV(tipo, listinoRiferimento) {
   // campi attesi (per il mapping)
   const campiAttesi = tipo === 'costo'
@@ -2764,15 +2827,25 @@ function openImportCSV(tipo, listinoRiferimento) {
 
   const b = el('div');
   b.innerHTML = `
-    <p class="small muted">Importazione di un listino da CSV. Le colonne del file vengono <strong>mappate</strong> sui campi del listino${tipo === 'costo' ? ' di costo' : ' di vendita per <strong>' + esc(listinoRiferimento.mandante) + '</strong>'}. L'anteprima mostra le righe parsate; solo dopo la conferma i dati vengono salvati come nuova versione del listino.</p>
+    <p class="small muted">Importazione di un listino da CSV. Se il file è nel formato "a matrice" tipico dei listini vettore (es. export DHL: scaglioni di peso × colonne Zona 1…N), viene riconosciuto <strong>automaticamente</strong> — basta indicare il vettore. Altrimenti le colonne vengono <strong>mappate</strong> manualmente sui campi del listino${tipo === 'costo' ? ' di costo' : ' di vendita per <strong>' + esc(listinoRiferimento.mandante) + '</strong>'}. L'anteprima mostra le righe parsate; solo dopo la conferma i dati vengono salvati come nuova versione del listino.</p>
     <h4 style="margin-top:8px">1. Carica file CSV</h4>
     <div class="form-row"><label>File</label>
       <input type="file" id="csv-file" accept=".csv,.txt,text/csv">
     </div>
     <p class="tiny" style="margin-top:-4px">Separatori supportati: <span class="mono">, ;</span> · Testo tra virgolette: <span class="mono">"…"</span></p>
     <div id="csv-hint" class="info-box" style="display:none"></div>
-    <h4 style="margin-top:12px">2. Mapping colonne</h4>
-    <div id="csv-mapping"></div>
+    <div id="csv-pivot-box" class="info-box" style="display:none">
+      <div id="csv-pivot-msg"></div>
+      <div class="form-row" style="margin-top:6px"><label>${tipo === 'costo' ? 'Vettore' : 'Vettore di riferimento'}</label>
+        <select id="csv-pivot-vettore" class="inline-select" style="max-width:none;width:100%">
+          ${VETTORI.map(v => `<option value="${esc(v.nome)}">${esc(v.nome)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="csv-mapping-section">
+      <h4 style="margin-top:12px">2. Mapping colonne</h4>
+      <div id="csv-mapping"></div>
+    </div>
     <h4 style="margin-top:12px">3. Anteprima righe</h4>
     <div id="csv-warn" class="err-box" style="display:none"></div>
     <div id="csv-preview"></div>
@@ -2783,6 +2856,26 @@ function openImportCSV(tipo, listinoRiferimento) {
     <div class="form-row"><label>Note</label><input type="text" id="csv-note" value="Importazione CSV"></div>`;
   let parsed = null; // { header, rows }
   let mapping = {}; // campoAtteso -> index
+  let pivotMode = false;
+  let pivotEntries = []; // [ "scaglione|zona", valore ]
+
+  // Converte la matrice peso/zona riconosciuta automaticamente nelle stesse strutture
+  // (parsed.header/rows + mapping) usate dal flusso di mapping manuale, così tutta
+  // l'anteprima/validazione/import a valle resta identica.
+  const buildPivotRows = () => {
+    const vettoreSel = $('#csv-pivot-vettore', b).value;
+    parsed = {
+      header: tipo === 'costo' ? ['Vettore', 'Scaglione', 'Zona', 'Costo'] : ['Vettore rif.', 'Scaglione', 'Zona', 'Vendita'],
+      rows: pivotEntries.map(([key, val]) => {
+        const [scaglione, zona] = key.split('|');
+        return [vettoreSel, scaglione, zona, String(val)];
+      })
+    };
+    mapping = tipo === 'costo'
+      ? { vettore: 0, scaglione: 1, zona: 2, costo: 3 }
+      : { vettoreRif: 0, scaglione: 1, zona: 2, vendita: 3 };
+    renderPreview();
+  };
 
   const buildMapping = () => {
     const cont = $('#csv-mapping', b);
@@ -2885,6 +2978,8 @@ function openImportCSV(tipo, listinoRiferimento) {
     const prev = $('#csv-preview', b); prev.innerHTML = ''; prev.appendChild(table);
   };
 
+  $('#csv-pivot-vettore', b).addEventListener('change', () => { if (pivotMode) buildPivotRows(); });
+
   const csvFile = $('#csv-file', b);
   csvFile.addEventListener('change', () => {
     const f = csvFile.files[0];
@@ -2892,13 +2987,32 @@ function openImportCSV(tipo, listinoRiferimento) {
     const reader = new FileReader();
     reader.onload = e => {
       const text = e.target.result;
-      parsed = parseCSVText(text);
-      if (!parsed.length || parsed.length < 2) { toast('CSV vuoto o non valido', 'err'); return; }
-      const header = parsed[0].map(h => h.trim());
-      parsed = { header, rows: parsed.slice(1) };
-      $('#csv-hint', b).style.display = '';
-      $('#csv-hint', b).innerHTML = `✔ <strong>${parsed.rows.length}</strong> righe lette (oltre l'intestazione). <strong>${parsed.header.length}</strong> colonne: <span class="mono">${parsed.header.map(esc).join(' · ')}</span>`;
-      buildMapping();
+      const rawRows = parseCSVText(text);
+      if (!rawRows.length) { toast('CSV vuoto o non valido', 'err'); return; }
+      const pivotMap = estraiTabellePesoZona(rawRows);
+      if (pivotMap.size > 0) {
+        // Formato a matrice riconosciuto (es. export DHL): niente mapping manuale,
+        // basta confermare/scegliere il vettore.
+        pivotMode = true;
+        pivotEntries = [...pivotMap.entries()];
+        const nScaglioni = new Set(pivotEntries.map(([k]) => k.split('|')[0])).size;
+        const nZone = new Set(pivotEntries.map(([k]) => k.split('|')[1])).size;
+        $('#csv-hint', b).style.display = 'none';
+        $('#csv-mapping-section', b).style.display = 'none';
+        $('#csv-pivot-box', b).style.display = '';
+        $('#csv-pivot-msg', b).innerHTML = `✔ Rilevato un file in formato <strong>a matrice peso × zona</strong> (tipico dei listini vettore): <strong>${nScaglioni}</strong> scaglioni × <strong>${nZone}</strong> zone, <strong>${pivotEntries.length}</strong> tariffe lette. Le altre sezioni del file (supplementi peso extra, premium orari, note legali, firme) sono state ignorate automaticamente.`;
+        buildPivotRows();
+      } else {
+        pivotMode = false;
+        $('#csv-pivot-box', b).style.display = 'none';
+        $('#csv-mapping-section', b).style.display = '';
+        if (rawRows.length < 2) { toast('CSV vuoto o non valido', 'err'); return; }
+        const header = rawRows[0].map(h => h.trim());
+        parsed = { header, rows: rawRows.slice(1) };
+        $('#csv-hint', b).style.display = '';
+        $('#csv-hint', b).innerHTML = `✔ <strong>${parsed.rows.length}</strong> righe lette (oltre l'intestazione). <strong>${parsed.header.length}</strong> colonne: <span class="mono">${parsed.header.map(esc).join(' · ')}</span>`;
+        buildMapping();
+      }
     };
     reader.readAsText(f);
   });
@@ -2972,7 +3086,10 @@ function openImportCSV(tipo, listinoRiferimento) {
             const decorrenzaFine = $('#csv-dec-out', bd).value || '';
             const label = $('#csv-label', bd).value.trim() || `Import CSV ${nowStr().slice(0, 10)}`;
             const note = $('#csv-note', bd).value.trim() || 'Importazione CSV';
-            let stato = OGGI < decorrenzaInizio ? 'futuro' : (decorrenzaFine && OGGI > decorrenzaFine ? 'archiviato' : 'attivo');
+            // Un listino importato da CSV nasce sempre come "futuro" (richiede conferma/attivazione
+            // manuale prima di entrare in vigore), a meno che la sua decorrenza fine non sia già
+            // trascorsa: in quel caso nasce direttamente "archiviato".
+            let stato = (decorrenzaFine && OGGI > decorrenzaFine) ? 'archiviato' : 'futuro';
 
             // genera id
             let id;
