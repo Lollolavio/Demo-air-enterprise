@@ -80,9 +80,9 @@ const MANDANTI = [
 ];
 
 const VETTORI = [
-  { id: 'CA', nome: 'Corriere A', tipo: 'terzo' },
-  { id: 'CB', nome: 'Corriere B', tipo: 'terzo' },
-  { id: 'CC', nome: 'Corriere C', tipo: 'terzo' },
+  { id: 'CA', nome: 'Bartolini', tipo: 'terzo' },
+  { id: 'CB', nome: 'DHL', tipo: 'terzo' },
+  { id: 'CC', nome: 'FedEX', tipo: 'terzo' },
   { id: 'P1', nome: 'Padroncino Nord-Ovest', tipo: 'proprio' },
   { id: 'P2', nome: 'Padroncino Riviera',    tipo: 'proprio' },
   { id: 'P3', nome: 'Padroncino Val Padana', tipo: 'proprio' }
@@ -92,11 +92,11 @@ const vettoreByNome = nome => VETTORI.find(v => v.nome === nome);
 const SERVIZI = ['Consegna al piano', 'SMS di preavviso', 'Consegna su appuntamento', 'Contrassegno', 'Reso documenti'];
 // Matrice di compatibilità servizio → vettori che lo supportano
 const COMPAT = {
-  'Consegna al piano':        ['Corriere A', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'SMS di preavviso':         ['Corriere A', 'Corriere B', 'Corriere C', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
-  'Consegna su appuntamento': ['Corriere B', 'Padroncino Nord-Ovest', 'Padroncino Riviera'],
-  'Contrassegno':             ['Corriere A', 'Corriere B'],
-  'Reso documenti':           ['Corriere A', 'Corriere C', 'Padroncino Val Padana']
+  'Consegna al piano':        ['Bartolini', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
+  'SMS di preavviso':         ['Bartolini', 'DHL', 'FedEX', 'Padroncino Nord-Ovest', 'Padroncino Riviera', 'Padroncino Val Padana'],
+  'Consegna su appuntamento': ['DHL', 'Padroncino Nord-Ovest', 'Padroncino Riviera'],
+  'Contrassegno':             ['Bartolini', 'DHL'],
+  'Reso documenti':           ['Bartolini', 'FedEX', 'Padroncino Val Padana']
 };
 const servizioCompatibile = (servizio, vettoreNome) => !vettoreNome || (COMPAT[servizio] || []).includes(vettoreNome);
 
@@ -329,7 +329,7 @@ const REGOLE_POOL = [
   ['Tutte le spedizioni del mandante', 'SMS di preavviso automatico'],
   ['Destinazione = Milano', 'Consegna al piano attivata'],
   ['Peso > 20 kg', 'Instradamento su linea propria'],
-  ['CAP in zona 191xx', 'Etichetta Corriere B'],
+  ['CAP in zona 191xx', 'Etichetta DHL'],
   ['Campo "note" contiene FRAGILE', 'Flag merce fragile su etichetta'],
   ['Contrassegno presente', 'Blocco in revisione manuale']
 ];
@@ -1987,9 +1987,13 @@ function gotoDiff() {
    ============================================================ */
 
 // Stato corrente della UI
-let lvVettoreCorrente = 'Corriere A';
+let lvVettoreCorrente = 'Bartolini';
 let lvMandanteCorrente = MANDANTI[0];
 let lvStorMandanteCorrente = MANDANTI[0];
+
+function righePerVettore(righe, campo) {
+  return righe.filter(r => r[campo] === lvVettoreCorrente);
+}
 
 function initListini() {
   // 1. auto-arciviazione in base a OGGI
@@ -2023,14 +2027,18 @@ function initListini() {
     else if (b.dataset.tab === 'lv-stor') renderListinoVenditaStorico();
   }));
 
-  // 4. sotto-tab vettori (per la sezione "Costo")
+  // 4. selettore vettore condiviso dalle quattro sezioni
   const vt = $('#lc-vettori-tabs');
+  vt.innerHTML = '';
   Object.keys(LISTINI_VETTORE).forEach((nome, i) => {
-    const b = el('button', { class: 'tab-btn' + (i === 0 ? ' active' : ''), onclick: () => {
+    const b = el('button', { class: 'tab-btn' + (nome === lvVettoreCorrente ? ' active' : ''), onclick: () => {
       $$('.tab-btn', vt).forEach(x => x.classList.remove('active'));
       b.classList.add('active');
       lvVettoreCorrente = nome;
-      renderListinoVettore();
+      renderListinoCostoAttivo();
+      renderListinoCostoStorico();
+      renderListinoVenditaAttivo();
+      renderListinoVenditaStorico();
     } }, esc(nome));
     vt.appendChild(b);
   });
@@ -2066,7 +2074,6 @@ function initListini() {
   renderListinoCostoStorico();
   renderListinoVenditaAttivo();
   renderListinoVenditaStorico();
-  renderListinoVettore();
 }
 
 /* ---- Header con versione attiva, decorrenza, azioni ---- */
@@ -2120,8 +2127,8 @@ function renderListinoCostoAttivo() {
   });
 
   renderDataTable({
-    mount: '#dt-listino-costo', title: `Righe listino di costo — ${l.label}`, noun: 'righe di listino',
-    data: () => l.righe, rowKey: r => r.vettore + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
+    mount: '#dt-listino-costo', title: `Righe listino di costo — ${lvVettoreCorrente} — ${l.label}`, noun: 'righe di listino',
+    data: () => righePerVettore(l.righe, 'vettore'), rowKey: r => r.vettore + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
     onRowClick: r => {
       openModal({ title: 'Origine listino di costo', body: `
         <dl class="confirm-summary">
@@ -2170,15 +2177,15 @@ function renderListinoCostoStorico() {
 
   // costruiamo una vista "una riga per versione" + sotto-tabella righe quando si apre il dettaglio
   const versioni = [...LISTINI_COSTO_VERSIONI].sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
-  const dataRows = versioni.map(v => ({
+  const dataRows = versioni.filter(v => v.righe.some(r => r.vettore === lvVettoreCorrente)).map(v => ({
     versione: v,
     id: v.id, label: v.label, decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
-    stato: v.stato, nRighe: v.righe.length, note: v.note,
+    stato: v.stato, nRighe: righePerVettore(v.righe, 'vettore').length, note: v.note,
     creatoIl: v.creatoIl, creatoDa: v.creatoDa
   }));
 
   renderDataTable({
-    mount: '#dt-listino-costo-stor', title: 'Tutte le versioni del listino di costo', noun: 'versioni di listino',
+    mount: '#dt-listino-costo-stor', title: `Versioni del listino di costo — ${lvVettoreCorrente}`, noun: 'versioni di listino',
     data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
     onRowClick: r => openDettaglioVersioneCosto(r.versione),
     rowActions: (r) => {
@@ -2294,8 +2301,8 @@ function renderListinoVenditaAttivo() {
   }
 
   renderDataTable({
-    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
-    data: () => l.righe, rowKey: r => r.vettoreRif + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
+    mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${lvVettoreCorrente} — ${l.mandante} — ${l.label}`, noun: 'righe di listino',
+    data: () => righePerVettore(l.righe, 'vettoreRif'), rowKey: r => r.vettoreRif + '|' + r.scaglione + '|' + r.zona, pageSize: 25, selectable: true,
     rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
     columns: [
       { key: 'vettoreRif', label: 'Vettore di rif.', ftype: 'enum' },
@@ -2327,19 +2334,19 @@ function renderListinoVenditaStorico() {
     <div class="lh-meta tiny">Tutte le versioni di listino del mandante selezionato, dalla più recente alla più vecchia. Clicca <strong>Duplica</strong> per creare un nuovo listino a partire da uno esistente (anche se archiviato).</div>`));
 
   const versioni = LISTINI_VENDITA_VERSIONI
-    .filter(v => v.mandante === lvStorMandanteCorrente)
+    .filter(v => v.mandante === lvStorMandanteCorrente && v.righe.some(r => r.vettoreRif === lvVettoreCorrente))
     .sort((a, b) => (b.decorrenzaInizio || '').localeCompare(a.decorrenzaInizio || ''));
   const dataRows = versioni.map(v => ({
     versione: v,
     id: v.id, label: v.label, mandante: v.mandante,
     decorrenza: `${v.decorrenzaInizio || '—'} → ${v.decorrenzaFine || '—'}`,
-    stato: v.stato, nRighe: v.righe.length, nPerdite: v.righe.filter(r => r.vendita < r.costo).length,
+    stato: v.stato, nRighe: righePerVettore(v.righe, 'vettoreRif').length, nPerdite: righePerVettore(v.righe, 'vettoreRif').filter(r => r.vendita < r.costo).length,
     agente: v.agente, provvigionePct: v.provvigionePct, scontoPct: v.scontoPct,
     note: v.note, creatoIl: v.creatoIl, creatoDa: v.creatoDa
   }));
 
   renderDataTable({
-    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita per ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
+    mount: '#dt-listino-vendita-stor', title: `Versioni del listino di vendita — ${lvVettoreCorrente} — ${lvStorMandanteCorrente}`, noun: 'versioni di listino',
     data: () => dataRows, rowKey: r => r.id, pageSize: 10, selectable: true,
     onRowClick: r => openDettaglioVersioneVendita(r.versione),
     rowActions: (r) => {
@@ -3394,7 +3401,7 @@ function initAppop() {
 }
 function renderPhone() {
   const isProprio = appopState.mode === 'padroncino';
-  $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — Corriere B';
+  $('#phone-mode-label').textContent = isProprio ? 'Linea propria — Padroncino Riviera' : 'Corriere esterno — DHL';
   const pkgs = SPEDIZIONI.filter(s => ['Pronta per etichettatura', 'In transito'].includes(s.stato)).slice(0, 4);
   const body = $('#phone-body');
   body.innerHTML = '';
@@ -3438,8 +3445,8 @@ function renderPhone() {
         appopState.consegnati.add(p.id);
         const s = spedById(p.id);
         s.stato = 'Consegnata';
-        s.storico.push({ stato: 'Consegnata', data: nowStr(), operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
-        s.tracking.push({ data: nowStr(), evento: 'Consegnata al destinatario (con foto)', luogo: s.localita, interno: false, operatore: isProprio ? 'Padroncino Riviera' : 'Corriere B' });
+        s.storico.push({ stato: 'Consegnata', data: nowStr(), operatore: isProprio ? 'Padroncino Riviera' : 'DHL' });
+        s.tracking.push({ data: nowStr(), evento: 'Consegnata al destinatario (con foto)', luogo: s.localita, interno: false, operatore: isProprio ? 'Padroncino Riviera' : 'DHL' });
         toast(`${p.id} consegnata ✓`, 'ok'); renderPhone();
       } }, 'Conferma consegna');
       box.appendChild(btn);
@@ -3586,7 +3593,7 @@ function initDashboard() {
 
   $('#dash-activity').innerHTML = [
     ['19:42', 'Import completato — Logistica Beta (CSV, 214 righe)', 'Flussi in ingresso'],
-    ['19:15', 'Azione massiva: 23 spedizioni → Corriere B', 'Spedizioni · M. Bruzzone'],
+    ['19:15', 'Azione massiva: 23 spedizioni → DHL', 'Spedizioni · M. Bruzzone'],
     ['18:50', 'Nuovo listino 2027 caricato per Pharma Ligure', 'Listini · A. Vitali'],
     ['18:22', 'Push Vinted: 3 nuovi ordini ricevuti', 'Connettore e-commerce'],
     ['17:58', 'Giacenza SPD-2026-00131 → reso al mittente', 'Giacenze · S. Piaggio']

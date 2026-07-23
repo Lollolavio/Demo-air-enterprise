@@ -213,12 +213,14 @@
       <h1>Listini e tariffe</h1>
       <span class="sub">4 sezioni: listino di costo, storico listino di costo, listino di vendita, storico listino di vendita</span>
     </div>
+    <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
     <div class="tabs" id="listini-tabs">
       <button class="tab-btn active" data-tab="lc">Listino di costo</button>
       <button class="tab-btn" data-tab="lc-stor">Storico listino di costo</button>
       <button class="tab-btn" data-tab="lv">Listino di vendita</button>
       <button class="tab-btn" data-tab="lv-stor">Storico listino di vendita</button>
     </div>
+
 
     <!-- =============== 1. LISTINO DI COSTO (attivo) =============== -->
     <div class="tab-pane active" id="pane-lc">
@@ -228,11 +230,6 @@
         <span class="tiny">Per modificare un listino attivo: <strong>duplicalo</strong>. I listini di costo e vendita sono storici e si modificano solo creando una nuova versione.</span>
       </div>
       <div id="dt-listino-costo"></div>
-      <div style="margin-top:18px">
-        <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
-        <div class="price-meta" id="lc-vettori-meta"></div>
-        <div id="dt-listino-vettore"></div>
-      </div>
     </div>
 
     <!-- =============== 2. STORICO LISTINO DI COSTO =============== -->
