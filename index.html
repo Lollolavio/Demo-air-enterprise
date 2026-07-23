@@ -124,6 +124,7 @@
     <button class="nav-item" data-view="tracking">Tracking</button>
     <button class="nav-item" data-view="appop">App operativa</button>
     <button class="nav-item" data-view="utenti">Utenti e ruoli</button>
+    <button class="nav-item" data-view="log">Log azioni</button>
     <button class="nav-item" data-view="config">Configurazioni</button>
   </nav>
   <div class="nav-user" id="nav-user" role="button" tabindex="0" title="Apri il profilo utente">
@@ -168,28 +169,15 @@
 
       <div class="tabs" id="sped-tabs">
         <button class="tab-btn active" data-stato="">Tutte</button>
+        <button class="tab-btn" data-stato="In revisione">In revisione</button>
+        <button class="tab-btn" data-stato="In staging">In staging</button>
+        <button class="tab-btn" data-stato="Pronta per etichettatura">Pronta per etichettatura</button>
         <button class="tab-btn" data-stato="Pronto per la spedizione">Pronto per la spedizione</button>
         <button class="tab-btn" data-stato="In transito">In transito</button>
-        <button class="tab-btn" data-stato="Consegnata">Consegnato</button>
-      </div>
-
-      <div class="card card-plain" style="padding:10px 14px">
-        <div class="legend">
-          <strong style="font-family:var(--font-display)">Filtri rapidi:</strong>
-          <label>Mandante <select id="gf-mandante" class="inline-select"></select></label>
-          <label>Stato <select id="gf-stato" class="inline-select"></select></label>
-          <label>Vettore <select id="gf-vettore" class="inline-select"></select></label>
-          <span class="tiny">I filtri rapidi si combinano (AND) con i filtri per colonna della tabella.</span>
-        </div>
+        <button class="tab-btn" data-stato="Consegnata">Consegnata</button>
       </div>
 
       <div id="dt-spedizioni"></div>
-
-      <div class="card">
-        <h3>Coda di lavorazione — flusso di staging</h3>
-        <p class="small muted">In revisione → (dati validi) → In staging → (vettore assegnato) → Pronta per etichettatura → (stampa LDV) → Pronto per la spedizione. Clicca una card per aprire il dettaglio.</p>
-        <div class="kanban" id="staging-kanban"></div>
-      </div>
     </div>
 
     <!-- Vista dettaglio a tab dedicata -->
@@ -202,6 +190,7 @@
         <h1>Colli madre e sotto-colli</h1>
         <span class="sub">Relazione bancale → colli, con stato aggregato e spedizione separata</span>
         <span class="spacer"></span>
+        <input type="text" id="colli-search" placeholder="Cerca per ID collo madre o sotto-collo…" style="min-width:260px">
         <button class="btn btn-primary" id="btn-nuovo-cm">+ Nuovo collo madre</button>
       </div>
       <ul class="tree" id="colli-tree"></ul>
@@ -222,40 +211,50 @@
   <section class="view" id="view-listini">
     <div class="view-header">
       <h1>Listini e tariffe</h1>
-      <span class="sub">Tre livelli: listini vettori terzi → listini di costo interni → listini di vendita</span>
+      <span class="sub">Listini suddivisi per vettore. Ogni vettore ha il suo listino di costo; per ogni mandante, un listino di vendita per ciascun vettore.</span>
     </div>
+    <div class="tabs" id="lc-vettori-tabs" style="border-bottom-width:1px"></div>
     <div class="tabs" id="listini-tabs">
-      <button class="tab-btn active" data-tab="lv">Listini vettori (terzi)</button>
-      <button class="tab-btn" data-tab="lc">Listini di costo interni</button>
-      <button class="tab-btn" data-tab="lvend">Listini di vendita</button>
-      <button class="tab-btn" data-tab="lstor">Storicità</button>
+      <button class="tab-btn active" data-tab="lc">Listino di costo</button>
+      <button class="tab-btn" data-tab="lc-stor">Storico listino di costo</button>
+      <button class="tab-btn" data-tab="lv">Listino di vendita</button>
+      <button class="tab-btn" data-tab="lv-stor">Storico listino di vendita</button>
     </div>
-    <div class="tab-pane active" id="pane-lv">
-      <div class="info-box">⚠️ <strong>Dati di esempio.</strong> I listini reali dei vettori non sono ancora disponibili (in attesa lato cliente): la struttura è pronta per l'inserimento dei valori definitivi.</div>
-      <div class="tabs" id="lv-vettori-tabs" style="border-bottom-width:1px"></div>
-      <div class="price-meta" id="lv-meta"></div>
-      <div id="dt-listino-vettore"></div>
-    </div>
-    <div class="tab-pane" id="pane-lc">
-      <div class="price-meta" id="lc-meta"></div>
+
+
+    <!-- =============== 1. LISTINO DI COSTO (attivo) =============== -->
+    <div class="tab-pane active" id="pane-lc">
+      <div id="lc-header"></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>Riga con personalizzazione (sovrapposta al valore derivato dal vettore)</span>
+        <span class="tiny">Per modificare un listino attivo: <strong>duplicalo</strong>. I listini di costo e vendita sono storici e si modificano solo creando una nuova versione.</span>
+      </div>
       <div id="dt-listino-costo"></div>
     </div>
-    <div class="tab-pane" id="pane-lvend">
+
+    <!-- =============== 2. STORICO LISTINO DI COSTO =============== -->
+    <div class="tab-pane" id="pane-lc-stor">
+      <div id="lc-stor-header"></div>
+      <div id="dt-listino-costo-stor"></div>
+    </div>
+
+    <!-- =============== 3. LISTINO DI VENDITA (attivo) =============== -->
+    <div class="tab-pane" id="pane-lv">
+      <div id="lv-header"></div>
+      <div class="tabs" id="lv-mandante-tabs" style="border-bottom-width:1px;margin-bottom:8px"></div>
       <div class="legend">
         <span><span class="sw" style="background:var(--err-bg);border:1px solid var(--err)"></span>Riga in perdita (vendita &lt; costo)</span>
-        <span class="tiny">Le righe sotto il <strong>listino vettore di origine</strong> mostrano un warning più severo rispetto a quelle sotto il solo costo interno.</span>
+        <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>Sotto il listino del vettore terzo (warning severo)</span>
+        <span class="tiny">Le righe <strong>sotto costo</strong> sono bloccanti: per procedere è necessaria una conferma esplicita.</span>
       </div>
       <div id="dt-listino-vendita"></div>
     </div>
-    <div class="tab-pane" id="pane-lstor">
-      <div class="card">
-        <h3>Timeline listini per cliente</h3>
-        <div class="form-row" style="max-width:320px">
-          <label>Mandante</label>
-          <select id="stor-cliente" class="inline-select" style="max-width:none;width:100%"></select>
-        </div>
-        <ul class="hist-timeline" id="stor-timeline"></ul>
-      </div>
+
+    <!-- =============== 4. STORICO LISTINO DI VENDITA =============== -->
+    <div class="tab-pane" id="pane-lv-stor">
+      <div id="lv-stor-header"></div>
+      <div class="tabs" id="lv-stor-mandante-tabs" style="border-bottom-width:1px;margin-bottom:8px"></div>
+      <div id="dt-listino-vendita-stor"></div>
     </div>
   </section>
 
@@ -281,6 +280,12 @@
     <div class="view-header">
       <h1>Giacenze</h1>
       <span class="sub">Gestione riga per riga o massiva sul filtro corrente</span>
+      <span class="spacer"></span>
+      <div class="save-bar" id="giacenze-save-bar" style="display:none">
+        <span class="tiny" id="giacenze-pending-count"></span>
+        <button class="btn btn-sm" id="btn-giacenze-annulla">Annulla</button>
+        <button class="btn btn-sm btn-primary" id="btn-giacenze-salva">Salva</button>
+      </div>
     </div>
     <div id="dt-giacenze"></div>
   </section>
@@ -350,6 +355,18 @@
         <p class="muted small">Seleziona un utente dalla tabella per vedere e simulare la modifica dei permessi.</p>
       </div>
     </div>
+  </section>
+
+  <!-- ==================== LOG AZIONI ==================== -->
+  <section class="view" id="view-log">
+    <div class="view-header">
+      <h1>Log delle azioni</h1>
+      <span class="sub" id="log-counter">Nessuna azione registrata in questa sessione</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btn-log-clear">Svuota log</button>
+    </div>
+    <div class="info-box">🗒️ <strong>Registro di sessione.</strong> Ogni notifica mostrata in basso a destra (assegnazioni vettore, cambi di stato, import, salvataggi, ecc.) viene registrata qui con data/ora, utente, modulo ed esito. Il log è mantenuto solo in memoria del browser: si azzera ricaricando la pagina.</div>
+    <div id="dt-log"></div>
   </section>
 
   <!-- ==================== CONFIGURAZIONI / ARCHITETTURA ==================== -->
