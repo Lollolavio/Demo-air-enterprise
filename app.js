@@ -2094,7 +2094,7 @@ function apriDettaglioRigaCosto(r, vetNome) {
 const COLONNE_RIGA_COSTO = [
   { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
   { key: 'zona', label: 'Zona', ftype: 'enum' },
-  { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.costo)}</strong>${r.personalizzazione ? ' ' + badge('personalizzata', 'warn') : ''}` },
+  { key: 'costo', label: 'Costo interno', ftype: 'number', numeric: true, render: r => `<strong>${fmtEur(r.costo)}</strong>` },
   { key: 'costoVettore', label: 'Listino vettore', ftype: 'number', numeric: true, render: r => r.costoVettore ? fmtEur(r.costoVettore) : '<span class="muted">—</span>' },
   { key: 'delta', label: 'Δ%', ftype: 'number', numeric: true, sortable: false,
     render: r => {
@@ -2285,6 +2285,20 @@ function archiviaListino(tipo, v) {
 /* ============================================================
    10c. SEZIONE 3 — LISTINO DI VENDITA (attivo, per mandante × vettore)
    ============================================================ */
+function apriDettaglioRigaVendita(r, mandNome, vetNome) {
+  openModal({ title: 'Dettaglio riga listino di vendita', body: `
+    <dl class="confirm-summary">
+      ${mandNome ? `<dt>Mandante</dt><dd>${esc(mandNome)}</dd>` : ''}
+      ${vetNome ? `<dt>Vettore</dt><dd>${esc(vetNome)}</dd>` : ''}
+      <dt>Scaglione / zona</dt><dd>${esc(r.scaglione)} — ${esc(r.zona)}</dd>
+      <dt>Costo interno</dt><dd>${fmtEur(r.costo)}</dd>
+      <dt>Prezzo di vendita</dt><dd><strong>${fmtEur(r.vendita)}</strong></dd>
+      <dt>Margine</dt><dd><span style="color:${r.margine < 0 ? 'var(--err)' : 'var(--ok)'};font-weight:600">${r.margine >= 0 ? '+' : ''}${fmtEur(r.margine)}</span></dd>
+      ${r.costoVettore ? `<dt>Listino vettore di origine</dt><dd>${fmtEur(r.costoVettore)}</dd>` : ''}
+      ${r.personalizzazione ? `<dt>Personalizzazione</dt><dd>${r.personalizzazione.tipo === 'perc' ? `Ricarico ${r.personalizzazione.valore >= 0 ? '+' : ''}${r.personalizzazione.valore}%` : `Sovrascrittura assoluta: ${fmtEur(r.personalizzazione.valore)}`} <span class="tiny">(applicata il ${esc(r.personalizzazione.applicataIl || '—')})</span></dd>` : ''}
+    </dl>`, actions: [{ label: 'Chiudi' }] });
+}
+
 const COLONNE_RIGA_VENDITA = [
   { key: 'scaglione', label: 'Scaglione', ftype: 'enum' },
   { key: 'zona', label: 'Zona', ftype: 'enum' },
@@ -2342,6 +2356,7 @@ function renderListinoVenditaAttivo() {
       mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${titolo}`, noun: 'righe di listino',
       data: () => rows, rowKey: r => r._mandante + '|' + r._vettoreId + '|' + r.scaglione + '|' + r.zona, pageSize: 25,
       rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
+      onRowClick: r => apriDettaglioRigaVendita(r, r._mandante, r._vettoreNome),
       columns: [
         ...(mand === null ? [{ key: 'mandante', label: 'Mandante', ftype: 'enum', render: r => `<strong>${esc(r._mandante)}</strong>` }] : []),
         ...(vet === null ? [{ key: 'vettore', label: 'Vettore', ftype: 'enum', render: r => `<strong>${esc(r._vettoreNome)}</strong>` }] : []),
@@ -2400,6 +2415,7 @@ function renderListinoVenditaAttivo() {
     mount: '#dt-listino-vendita', title: `Righe listino di vendita — ${esc(mand)} · ${esc(vettoreLabel())} — ${esc(l.label)}`, noun: 'righe di listino',
     data: () => l.righe, rowKey: r => r.scaglione + '|' + r.zona, pageSize: 25,
     rowClass: r => r.vendita < r.costo ? 'row-danger' : '',
+    onRowClick: r => apriDettaglioRigaVendita(r, mand, vettoreLabel()),
     columns: COLONNE_RIGA_VENDITA
   });
 }
