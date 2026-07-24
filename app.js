@@ -3510,7 +3510,7 @@ function initUtenti() {
       { key: 'nome', label: 'Nome', ftype: 'text', render: r => `<strong>${esc(r.nome)}</strong><br><span class="tiny mono">${esc(r.email)}</span>` },
       { key: 'livello', label: 'Livello di accesso', ftype: 'enum', statusOrder: LIVELLI_UTENTE,
         render: r => badge(r.livello, { 'Piattaforma': 'err', 'Back office': 'brand', 'Mandante/Sottocontratto': 'info', 'Cliente finale': '' }[r.livello]) },
-      { key: 'mandante', label: 'Mandante/Sottocontratto', ftype: 'enum' },
+      { key: 'mandante', label: 'Cliente', ftype: 'enum' },
       { key: 'ultimoAccesso', label: 'Ultimo accesso', ftype: 'date', render: r => `<span class="mono tiny">${r.ultimoAccesso}</span>` },
       { key: 'stato', label: 'Stato', ftype: 'enum', render: r => badge(r.stato, r.stato === 'Attivo' ? 'ok' : 'warn') }
     ],
