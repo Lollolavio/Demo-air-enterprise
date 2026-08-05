@@ -12,20 +12,20 @@
 }
 
 :root {
-  --bg: #F2F4F8;
+  --bg: #F5F5F5;
   --surface: #FFFFFF;
-  --surface-2: #F8FAFD;
-  --ink: #16233B;
-  --ink-soft: #51607A;
-  --ink-faint: #8792A6;
-  --line: #DDE3EC;
-  --line-strong: #C4CDDB;
+  --surface-2: #F2F2F2;
+  --ink: #333333;
+  --ink-soft: #5F5F5F;
+  --ink-faint: #8C8C8C;
+  --line: #E0E0E0;
+  --line-strong: #C7C7C7;
 
-  --brand: #1D3461;
-  --brand-dark: #142647;
-  --brand-soft: #E8EDF6;
-  --accent: #F26419;
-  --accent-soft: #FDEADF;
+  --brand: #C00000;
+  --brand-dark: #900000;
+  --brand-soft: #F9DEDE;
+  --accent: #333333;
+  --accent-soft: #E6E6E6;
 
   --ok: #1E7F4F;      --ok-bg: #E4F3EB;
   --warn: #B45309;    --warn-bg: #FCF0DE;
@@ -35,8 +35,8 @@
 
   --radius: 8px;
   --radius-sm: 5px;
-  --shadow: 0 1px 2px rgba(22,35,59,.06), 0 4px 14px rgba(22,35,59,.07);
-  --shadow-lg: 0 8px 40px rgba(22,35,59,.22);
+  --shadow: 0 1px 2px rgba(51,51,51,.06), 0 4px 14px rgba(51,51,51,.07);
+  --shadow-lg: 0 8px 40px rgba(51,51,51,.22);
 
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-display: 'Barlow Semi Condensed', 'Inter', sans-serif;
@@ -86,16 +86,9 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--in
 }
 .brand-mark {
   width: 26px; height: 26px; border-radius: 6px;
-  background:
-    repeating-linear-gradient(90deg, var(--accent) 0 3px, transparent 3px 6px),
-    linear-gradient(135deg, #F26419, #d14e0b);
-  background-blend-mode: overlay;
-  position: relative;
-}
-.brand-mark::after {
-  content: '»'; position: absolute; inset: 0;
-  display: grid; place-items: center;
-  color: #fff; font-size: 17px; font-weight: 700; line-height: 1;
+  object-fit: contain;
+  background: #fff;
+  padding: 2px;
 }
 .brand small { font-weight: 500; opacity: .65; font-size: 11px; }
 
@@ -171,7 +164,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 20px 22px 60px; }
 .btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
 .btn-primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
 .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn-accent:hover { background: #d95710; border-color: #d95710; }
+.btn-accent:hover { background: #1a1a1a; border-color: #1a1a1a; }
 .btn-danger { background: var(--err); border-color: var(--err); color: #fff; }
 .btn-danger:hover { background: #a53125; }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--brand); }
@@ -192,7 +185,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 20px 22px 60px; }
 .badge.err     { background: var(--err-bg); color: var(--err); }
 .badge.info    { background: var(--info-bg); color: var(--info); }
 .badge.brand   { background: var(--brand-soft); color: var(--brand); }
-.badge.accent  { background: var(--accent-soft); color: #b34a0e; }
+.badge.accent  { background: var(--accent-soft); color: var(--accent); }
 .badge.nodot::before { display: none; }
 
 .tag {
@@ -355,7 +348,7 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand); cu
 .kanban-col > h4 .count { background: var(--brand); color: #fff; border-radius: 999px; padding: 0 8px; font-size: 11.5px; }
 .kcard {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: 9px 11px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(22,35,59,.05); cursor: pointer;
+  padding: 9px 11px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(51,51,51,.05); cursor: pointer;
 }
 .kcard:hover { border-color: var(--brand); }
 .kcard .k-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--brand); font-weight: 600; }
@@ -536,7 +529,7 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--brand); cu
 /* ---------- Demo hint chip ---------- */
 .demo-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  background: var(--accent-soft); color: #b34a0e; border: 1px dashed #e8a377;
+  background: var(--accent-soft); color: var(--accent); border: 1px dashed #b3b3b3;
   font-size: 11px; font-weight: 600; border-radius: 999px; padding: 3px 10px;
 }
 
@@ -565,9 +558,9 @@ body.logged-out main { display: none !important; }
   display: none;
   position: fixed; inset: 0; z-index: 90;
   background:
-    radial-gradient(1200px 600px at -10% 110%, rgba(242,100,25,.35), transparent 60%),
-    radial-gradient(900px 500px at 110% -10%, rgba(99,132,255,.35), transparent 60%),
-    linear-gradient(135deg, #0E1B36 0%, #1D3461 55%, #25406F 100%);
+    radial-gradient(1200px 600px at -10% 110%, rgba(192,0,0,.35), transparent 60%),
+    radial-gradient(900px 500px at 110% -10%, rgba(90,90,90,.35), transparent 60%),
+    linear-gradient(135deg, #1A1A1A 0%, #333333 55%, #4D4D4D 100%);
   color: #fff;
   overflow: hidden;
   font-family: var(--font-body);
@@ -584,9 +577,9 @@ body.logged-out #login-screen {
   position: absolute; border-radius: 50%; filter: blur(70px); opacity: .55;
   animation: floatOrb 16s ease-in-out infinite;
 }
-.login-decor .orb-1 { width: 420px; height: 420px; background: #F26419; top: -120px; left: -100px; }
-.login-decor .orb-2 { width: 360px; height: 360px; background: #6384FF; bottom: -120px; right: -80px; animation-delay: -6s; }
-.login-decor .orb-3 { width: 260px; height: 260px; background: #5BE3C0; top: 40%; left: 55%; opacity: .25; animation-delay: -3s; }
+.login-decor .orb-1 { width: 420px; height: 420px; background: #C00000; top: -120px; left: -100px; }
+.login-decor .orb-2 { width: 360px; height: 360px; background: #666666; bottom: -120px; right: -80px; animation-delay: -6s; }
+.login-decor .orb-3 { width: 260px; height: 260px; background: #999999; top: 40%; left: 55%; opacity: .25; animation-delay: -3s; }
 @keyframes floatOrb {
   0%, 100% { transform: translate(0,0) scale(1); }
   50%      { transform: translate(30px, -25px) scale(1.06); }
@@ -620,9 +613,9 @@ body.logged-out #login-screen {
 .login-side {
   position: relative;
   background:
-    radial-gradient(600px 400px at 0% 0%, rgba(242,100,25,.30), transparent 60%),
-    radial-gradient(500px 350px at 100% 100%, rgba(91,227,192,.22), transparent 60%),
-    linear-gradient(160deg, #0F1E3D 0%, #1A2E5A 60%, #243F75 100%);
+    radial-gradient(600px 400px at 0% 0%, rgba(192,0,0,.30), transparent 60%),
+    radial-gradient(500px 350px at 100% 100%, rgba(153,153,153,.22), transparent 60%),
+    linear-gradient(160deg, #1A1A1A 0%, #2E2E2E 60%, #444444 100%);
   padding: 36px 34px;
   display: flex; align-items: center;
   overflow: hidden;
@@ -652,8 +645,8 @@ body.logged-out #login-screen {
 .login-bullets li { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: rgba(255,255,255,.85); }
 .login-bullets .dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(242,100,25,.22);
+  background: var(--brand);
+  box-shadow: 0 0 0 3px rgba(192,0,0,.22);
   flex-shrink: 0;
 }
 .login-side-foot { font-size: 11.5px; color: rgba(255,255,255,.55); display: flex; align-items: center; gap: 6px; }
@@ -711,7 +704,7 @@ body.logged-out #login-screen {
 .input-wrap:focus-within {
   border-color: var(--brand);
   background: var(--surface);
-  box-shadow: 0 0 0 4px rgba(29,52,97,.10);
+  box-shadow: 0 0 0 4px rgba(192,0,0,.10);
 }
 .input-wrap .input-ico {
   position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
@@ -744,14 +737,14 @@ body.logged-out #login-screen {
   letter-spacing: .02em;
   position: relative; overflow: hidden;
   transition: transform .12s ease, box-shadow .15s ease, background .15s ease;
-  box-shadow: 0 8px 18px -8px rgba(29,52,97,.55);
+  box-shadow: 0 8px 18px -8px rgba(192,0,0,.55);
 }
 .login-submit::after {
   content: ''; position: absolute; inset: 0; left: -120%;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
   transition: left .55s ease;
 }
-.login-submit:hover { transform: translateY(-1px); box-shadow: 0 14px 24px -10px rgba(29,52,97,.6); }
+.login-submit:hover { transform: translateY(-1px); box-shadow: 0 14px 24px -10px rgba(192,0,0,.6); }
 .login-submit:hover::after { left: 120%; }
 .login-submit:active { transform: translateY(0); }
 .login-submit-ico { display: inline-block; transition: transform .2s ease; }
