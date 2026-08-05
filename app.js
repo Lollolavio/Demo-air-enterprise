@@ -1328,9 +1328,9 @@ function initSpedTable() {
     bulkActions: [
       { label: 'Assegna vettore a selezione/filtro', cls: 'btn-primary', run: bulkAssegnaVettore },
       { label: 'Cambia stato a selezione/filtro', cls: 'btn-primary', run: bulkCambiaStato },
-      { label: 'Applica servizio accessorio', run: bulkApplicaServizio },
-      { label: 'Correggi CAP non validi (filtro)', cls: 'btn-accent', run: bulkCorreggiCap },
-      { label: 'Normalizza numeri (filtro)', run: bulkNormalizzaTel }
+      { label: 'Applica servizio accessorio', cls: 'btn-primary', run: bulkApplicaServizio },
+      { label: 'Correggi CAP non validi (filtro)', cls: 'btn-primary', run: bulkCorreggiCap },
+      { label: 'Normalizza numeri (filtro)', cls: 'btn-primary', run: bulkNormalizzaTel }
     ]
   });
   // banner di scope per il profilo Mandante: spiega perché la lista è già filtrata
